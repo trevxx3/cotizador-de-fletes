@@ -3,25 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cotizador de Envíos de Llantas</title>
+<title>Cotizador de Fletes · Mayoreo</title>
 <!--
   =====================================================================
-  COTIZADOR DE ENVÍOS DE LLANTAS — Archivo único (HTML + CSS + JS)
+  COTIZADOR DE FLETES · MAYOREO — Archivo único (HTML + CSS + JS)
   ---------------------------------------------------------------------
+  • Basado en el Excel "COTIZADOR DE FLETES · MAYOREO" (hojas Cotizador y Tarifas).
   • Se abre con doble clic. No necesita internet, servidor ni instalación.
   • Estructura del archivo (en este orden):
       1) <style>  ............ Diseño visual (colores, tamaños, impresión)
       2) <body>   ............ Formulario, resultado, historial, modal
       3) <script> ............ Lógica, dividida en secciones:
-           SECCIÓN A: CATÁLOGOS (ciudades, tipos de llanta, vehículos)
-           SECCIÓN B: TABLA DE DISTANCIAS + obtenerDistanciaKm()
-           SECCIÓN C: TARIFAS (valores de EJEMPLO)        <-- editar aquí
-           SECCIÓN D: calcularCotizacion()                <-- editar aquí
+           SECCIÓN C: DATOS DEL EXCEL (DATOS_EXCEL)      <-- se regenera con tools/excel_a_json.py
+           SECCIÓN D: calcularCotizacion()               <-- costo interno (igual al Excel)
+           SECCIÓN D2: PRECIO DE VENTA (margen + IVA)    <-- aquí se define el MARGEN
            SECCIÓN E: Configuración guardada (localStorage)
            SECCIÓN F: Interfaz (formulario, resultado, copiar, imprimir)
            SECCIÓN G: Historial de cotizaciones
-  • Para cambiar CÓMO se calcula el precio, solo hay que tocar las
-    secciones C y D. El resto de la página se adapta sola.
+  • Para cambiar CÓMO se calcula, solo hay que tocar la sección D.
+    Para cambiar tarifas/destinos, actualiza el Excel y corre el script.
   =====================================================================
 -->
 <style>
@@ -102,6 +102,30 @@
   .alertas{margin-top:10px;display:flex;flex-direction:column;gap:6px}
   .alerta{font-size:.8rem;padding:8px 10px;border-radius:8px;background:#fff8e6;color:#8a5a00;border:1px solid #f5dfa3}
   .alerta.info{background:#eef4ff;color:#2a4a8a;border-color:#cddcfa}
+  /* Captura de llantas por tipo */
+  .tabla-llantas{width:100%;border-collapse:collapse;font-size:.9rem}
+  .tabla-llantas th{font-size:.72rem;text-transform:uppercase;color:var(--suave);text-align:right;padding:4px 6px;font-weight:600;letter-spacing:.3px}
+  .tabla-llantas th:first-child{text-align:left}
+  .tabla-llantas td{padding:5px 6px;border-bottom:1px dashed var(--borde);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tabla-llantas td:first-child{text-align:left;white-space:normal}
+  .tabla-llantas td small{display:block;color:var(--suave);font-size:.72rem}
+  .tabla-llantas input{width:90px;padding:8px;text-align:right;background:#fffbe6;border-color:#f5c48f}
+  .tabla-llantas tr.tot td{font-weight:700;border-bottom:none}
+  .ocupa.lleno{color:#c0392b;font-weight:700}
+  /* Opciones de envío */
+  table.opciones{width:100%;border-collapse:collapse;font-size:.88rem;margin-top:6px}
+  table.opciones th{font-size:.7rem;text-transform:uppercase;color:var(--suave);text-align:right;padding:4px;font-weight:600}
+  table.opciones th:first-child{text-align:left}
+  table.opciones td{padding:8px 4px;border-bottom:1px dashed var(--borde);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  table.opciones td:first-child{text-align:left;white-space:normal}
+  table.opciones td .det{display:block;font-size:.72rem;color:var(--suave)}
+  table.opciones tr.mejor td{background:#fff6ee;font-weight:700}
+  table.opciones tr.na td{color:var(--suave)}
+  .lugar{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#e9edf4;color:var(--navy);font-size:.75rem;font-weight:700}
+  tr.mejor .lugar{background:var(--naranja);color:#fff}
+  .sub-tit{font-size:.78rem;font-weight:700;color:var(--naranja-2);text-transform:uppercase;letter-spacing:.3px;margin:16px 0 4px}
+  .info-destino{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  .chip{background:#eef1f6;border-radius:999px;padding:3px 10px;font-size:.78rem;color:var(--navy)}
   .vacio{text-align:center;color:var(--suave);padding:30px 10px}
   /* Historial */
   .historial{}
@@ -128,16 +152,40 @@
   }
   @media (max-width:560px){
     .grid{grid-template-columns:1fr}
-    .tipos-llanta{grid-template-columns:1fr 1fr}
+    .tabla-llantas .col-ocupa{display:none}
+    .tabla-llantas input{width:72px}
     header .acciones{margin-left:0;width:100%}
     .tarjeta{padding:16px}
   }
+  /* ---- Precio al cliente / detalle interno ---- */
+  .precio-cliente{margin-top:12px;border:1.5px solid #ffd3ad;background:#fff6ee;border-radius:12px;padding:14px 16px}
+  .precio-cliente .forma{font-size:.85rem;color:var(--suave);margin-bottom:6px}
+  .precio-cliente .forma b{color:var(--navy);font-size:1rem}
+  .precio-cliente table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  .precio-cliente td{padding:4px 0;font-size:.9rem}
+  .precio-cliente td:last-child{text-align:right}
+  .precio-cliente tr.gran td{border-top:1.5px solid #ffd3ad;padding-top:8px;font-size:1.05rem;font-weight:700;color:var(--navy)}
+  .precio-cliente tr.gran td:last-child{font-size:1.6rem}
+  .vigencia{font-size:.75rem;color:var(--suave);margin-top:8px}
+  .elegir{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+  .elegir label{font-size:.8rem;font-weight:700;color:var(--navy)}
+  .elegir select{flex:1;min-width:220px}
+  .flag-margen{margin-top:10px;font-size:.82rem;font-weight:700;padding:8px 10px;border-radius:8px;background:#ffecec;color:#a11d1d;border:1px solid #f5b5b5}
+  .flag-margen.prueba{background:#fff3e0;color:#9a4b00;border-color:#ffcf99}
+  details.interno{margin-top:16px;border:1px dashed #b9c2d6;border-radius:12px;padding:8px 12px;background:#f8f9fc}
+  details.interno summary{cursor:pointer;font-weight:700;color:var(--navy);font-size:.88rem}
+  details.interno[open] summary{margin-bottom:6px}
+  .checkline{display:flex;gap:8px;align-items:center;font-size:.85rem;margin-top:6px}
+  .checkline input{width:auto}
+
   /* ===================== IMPRESIÓN / PDF =====================
      Al imprimir solo se muestra la cotización, limpia y en blanco. */
   @media print{
     @page{margin:16mm}
     body{background:#fff;font-size:12pt}
-    header.barra,.formulario,.historial,.botonera,.modal-fondo,footer,.toast,.no-imprimir{display:none!important}
+    header.barra,.formulario,.historial,.botonera,.modal-fondo,footer,.toast,.no-imprimir,details.interno,.elegir,.flag-margen{display:none!important}
+    .precio-cliente{background:#fff;border:2px solid #000}
+    .precio-cliente tr.gran td{color:#000;border-top-color:#000}
     main,.columnas{display:block;margin:0;padding:0;max-width:none}
     .tarjeta{box-shadow:none;padding:0}
     .resultado{position:static}
@@ -145,6 +193,8 @@
     .ruta{background:#fff;color:#000;border:2px solid #000}
     .total{background:#fff;border:2px solid #000}
     .total b,.total span{color:#000}
+    table.opciones tr.mejor td{background:#fff;border-top:1.5px solid #000;border-bottom:1.5px solid #000}
+    .lugar{border:1px solid #000;background:#fff!important;color:#000!important}
   }
 </style>
 </head>
@@ -155,12 +205,12 @@
   <div class="logo" aria-hidden="true"></div>
   <div>
     <!-- Cambia aquí el nombre de la empresa -->
-    <h1 id="nombreEmpresa">Cotizador de Envíos de Llantas</h1>
-    <div class="sub">Herramienta interna para vendedores</div>
+    <h1 id="nombreEmpresa">Cotizador de Fletes · Mayoreo</h1>
+    <div class="sub">Compara paquetería, fletera y unidades propias · Origen: <span id="origenTxt">Monterrey</span></div>
   </div>
   <div class="acciones">
-    <span class="badge-ejemplo" id="badgeTarifas" title="Abrir configuración de tarifas">⚠ Tarifas de ejemplo — configúralas</span>
-    <button class="btn btn-claro btn-mini" id="btnConfig">⚙ Configuración de tarifas</button>
+    <span class="badge-ejemplo real" id="badgeTarifas" title="Abrir configuración de tarifas">✓ Tarifas del Excel</span>
+    <button class="btn btn-claro btn-mini" id="btnConfig">⚙ Tarifas y margen</button>
   </div>
 </header>
 
@@ -169,51 +219,25 @@
   <!-- -------- Formulario -------- -->
   <section class="tarjeta formulario">
     <form id="formCotizacion" autocomplete="off">
-      <h2><span class="num">1</span> Ruta</h2>
+      <h2><span class="num">1</span> ¿A dónde va el envío?</h2>
       <div class="grid">
-        <div>
-          <label for="origen">Origen</label>
-          <input id="origen" list="listaCiudades" placeholder="Ciudad o dirección" value="Monterrey" required>
-        </div>
-        <div>
-          <label for="destino">Destino</label>
-          <input id="destino" list="listaCiudades" placeholder="Ciudad o dirección" required>
-        </div>
-        <datalist id="listaCiudades"></datalist>
         <div class="full">
-          <label for="km">Distancia (km)</label>
-          <div class="fila-km">
-            <input id="km" type="number" min="0" step="1" inputmode="numeric" placeholder="Se llena sola o escríbela">
-            <button type="button" class="btn btn-sec btn-mini" id="btnRecalcKm" title="Volver a tomar la distancia de la tabla">↻ Tabla</button>
-          </div>
-          <div class="nota" id="notaKm">Distancias aproximadas por carretera (referencia). Puedes corregirlas a mano.</div>
+          <label for="destino">📍 Destino</label>
+          <select id="destino" required><!-- se genera desde DATOS_EXCEL.destinos --></select>
+          <div class="info-destino" id="infoDestino"></div>
         </div>
       </div>
 
-      <h2 style="margin-top:20px"><span class="num">2</span> Carga</h2>
-      <label>Tipo de llanta</label>
-      <div class="tipos-llanta" id="tiposLlanta"><!-- se genera desde TIPOS_LLANTA --></div>
-      <div class="grid" style="margin-top:12px">
-        <div>
-          <label for="cantidad">Cantidad de llantas</label>
-          <input id="cantidad" type="number" min="1" step="1" inputmode="numeric" value="1" required>
-        </div>
-        <div>
-          <label for="vehiculo">Vehículo / servicio</label>
-          <select id="vehiculo"><!-- se genera desde VEHICULOS --></select>
-        </div>
-        <div class="full">
-          <label>Urgencia</label>
-          <div class="segmento">
-            <input type="radio" name="urgencia" id="urgNormal" value="normal" checked><label for="urgNormal">Normal</label>
-            <input type="radio" name="urgencia" id="urgExpress" value="express"><label for="urgExpress">⚡ Express</label>
-          </div>
-        </div>
-      </div>
+      <h2 style="margin-top:20px"><span class="num">2</span> ¿Cuántas llantas vas a enviar?</h2>
+      <table class="tabla-llantas">
+        <thead><tr><th>Tipo de llanta</th><th>Cantidad</th><th>Kg</th><th class="col-ocupa">Nissan</th><th class="col-ocupa">Cam. 3.5</th><th class="col-ocupa">Tráiler</th></tr></thead>
+        <tbody id="filasLlantas"><!-- se genera desde DATOS_EXCEL.tiposLlanta --></tbody>
+      </table>
+      <div class="nota">Las columnas Nissan / Cam. 3.5 / Tráiler muestran la <b>ocupación</b> de la unidad (100% = llena).</div>
 
       <h2 style="margin-top:20px"><span class="num">3</span> Datos (opcional)</h2>
       <div class="grid">
-        <div><label for="cliente">Cliente</label><input id="cliente" placeholder="Nombre del cliente"></div>
+        <div><label for="cliente">👤 Cliente</label><input id="cliente" placeholder="Nombre del cliente"></div>
         <div><label for="vendedor">Vendedor</label><input id="vendedor" placeholder="Tu nombre"></div>
         <div class="full"><label for="notas">Notas</label><textarea id="notas" placeholder="Horario de entrega, maniobras, referencias…"></textarea></div>
       </div>
@@ -228,11 +252,11 @@
   <!-- -------- Resultado -------- -->
   <section class="tarjeta resultado" id="panelResultado">
     <div class="solo-impresion">
-      <h2 id="tituloImpresion">Cotización de envío</h2>
+      <h2 id="tituloImpresion">Cotización de flete</h2>
     </div>
-    <h2 class="no-imprimir"><span class="num">$</span> Cotización</h2>
+    <h2 class="no-imprimir"><span class="num">$</span> Cotización para el cliente</h2>
     <div id="contenidoResultado">
-      <div class="vacio">Llena la ruta y la carga, y presiona <b>Calcular cotización</b>.</div>
+      <div class="vacio">Elige el destino, captura las llantas y presiona <b>Calcular cotización</b>.</div>
     </div>
     <div class="botonera" id="accionesResultado" style="display:none">
       <button class="btn btn-primario" id="btnCopiar">📋 Copiar texto</button>
@@ -253,18 +277,18 @@
 </main>
 
 <footer>
-  Las tarifas y distancias mostradas son de <b>ejemplo</b> hasta que se configuren las reales. Precios en pesos mexicanos (MXN).
+  Tarifas, kilómetros y capacidades tomados del Excel "Cotizador de fletes · Mayoreo". Importes en pesos mexicanos (MXN).
 </footer>
 
-<!-- -------- Modal de configuración de tarifas (se genera desde TARIFAS) -------- -->
+<!-- -------- Modal de configuración de tarifas (se genera desde DATOS_EXCEL) -------- -->
 <div class="modal-fondo" id="modalConfig" role="dialog" aria-modal="true">
   <div class="modal">
-    <h3>⚙ Configuración de tarifas</h3>
-    <div class="nota">Los cambios se guardan solo en este navegador/equipo. Para que todos los vendedores usen las mismas tarifas, cámbialas también en la sección <code>TARIFAS</code> del archivo.</div>
+    <h3>⚙ Tarifas y margen</h3>
+    <div class="nota">Los valores vienen del Excel. Si cambias algo aquí, se guarda solo en este navegador/equipo. Para que todos usen los mismos valores, actualiza el Excel y vuelve a generar la página (ver GUIA_PARA_CLAUDE.md).</div>
     <form id="formConfig"></form>
     <div class="botonera">
-      <button class="btn btn-primario" id="btnGuardarConfig">Guardar tarifas</button>
-      <button class="btn btn-sec" id="btnRestaurarConfig">Restaurar ejemplo</button>
+      <button class="btn btn-primario" id="btnGuardarConfig">Guardar configuración</button>
+      <button class="btn btn-sec" id="btnRestaurarConfig">Restaurar valores del Excel</button>
       <button class="btn btn-sec" id="btnCerrarConfig">Cerrar</button>
     </div>
   </div>
@@ -274,284 +298,258 @@
 
 <script>
 "use strict";
-/* =======================================================================
-   SECCIÓN A: CATÁLOGOS
-   Listas que alimentan los menús. Agregar una ciudad, tipo de llanta o
-   vehículo aquí la hace aparecer automáticamente en la página.
-   ======================================================================= */
-
-/** Ciudades principales con coordenadas aproximadas (lat, lon).
- *  Las coordenadas solo se usan para ESTIMAR distancias cuando una ruta
- *  no está en la TABLA_DISTANCIAS. */
-const CIUDADES = {
-  "Monterrey":        [25.6866, -100.3161],
-  "CDMX":             [19.4326,  -99.1332],
-  "Guadalajara":      [20.6597, -103.3496],
-  "Querétaro":        [20.5888, -100.3899],
-  "Saltillo":         [25.4232, -101.0053],
-  "San Luis Potosí":  [22.1565, -100.9855],
-  "Puebla":           [19.0414,  -98.2063],
-  "Tijuana":          [32.5149, -117.0382],
-  "Hermosillo":       [29.0729, -110.9559],
-  "Chihuahua":        [28.6320, -106.0691],
-  "Mérida":           [20.9674,  -89.5926],
-  "León":             [21.1250, -101.6860],
-  "Torreón":          [25.5428, -103.4068],
-  "Veracruz":         [19.1738,  -96.1342],
-  "Culiacán":         [24.8091, -107.3940]
-};
-
-/** Tipos de llanta. `pesoKg` y `factor` son VALORES DE EJEMPLO:
- *  - pesoKg: peso aproximado por pieza (para elegir vehículo y avisar capacidad)
- *  - factor: tamaño/volumen relativo a una llanta de auto (auto = 1) */
-const TIPOS_LLANTA = {
-  auto:     { nombre: "Auto / Camioneta", icono: "🚗", pesoKg: 10,  factor: 1,  ejemplo: "Ej. 205/55 R16" },
-  camion:   { nombre: "Camión / Carga",   icono: "🚚", pesoKg: 55,  factor: 4,  ejemplo: "Ej. 295/80 R22.5" },
-  agricola: { nombre: "Agrícola",         icono: "🚜", pesoKg: 120, factor: 8,  ejemplo: "Ej. 18.4-34" },
-  otr:      { nombre: "OTR / Industrial", icono: "🏗️", pesoKg: 400, factor: 20, ejemplo: "Ej. 23.5R25" }
-};
-
-/** Vehículos / servicios. `capacidadKg` es de EJEMPLO.
- *  "auto" = la página sugiere el vehículo más chico donde quepa la carga. */
-const VEHICULOS = {
-  auto:      { nombre: "Automático (sugerir)", capacidadKg: null },
-  camioneta: { nombre: "Camioneta 3.5 t",      capacidadKg: 3500 },
-  rabon:     { nombre: "Rabón",                capacidadKg: 8000 },
-  torton:    { nombre: "Torton",               capacidadKg: 15000 },
-  trailer:   { nombre: "Tráiler 53'",          capacidadKg: 30000 }
-};
-
-/* =======================================================================
-   SECCIÓN B: DISTANCIAS
-   Tabla de distancias APROXIMADAS por carretera (km). Son de referencia;
-   verifícalas con Google Maps antes de usarlas para precios reales.
-   Formato: "Ciudad A|Ciudad B": km  (el orden no importa).
-   ======================================================================= */
-const TABLA_DISTANCIAS = {
-  // Desde Monterrey
-  "Monterrey|CDMX": 910, "Monterrey|Guadalajara": 790, "Monterrey|Querétaro": 700,
-  "Monterrey|Saltillo": 85, "Monterrey|San Luis Potosí": 515, "Monterrey|Puebla": 1030,
-  "Monterrey|Tijuana": 2300, "Monterrey|Hermosillo": 1750, "Monterrey|Chihuahua": 800,
-  "Monterrey|Mérida": 2050, "Monterrey|León": 660, "Monterrey|Torreón": 330,
-  "Monterrey|Veracruz": 1000, "Monterrey|Culiacán": 1120,
-  // Desde CDMX
-  "CDMX|Guadalajara": 540, "CDMX|Querétaro": 215, "CDMX|Saltillo": 850,
-  "CDMX|San Luis Potosí": 415, "CDMX|Puebla": 135, "CDMX|Tijuana": 2850,
-  "CDMX|Hermosillo": 1950, "CDMX|Chihuahua": 1480, "CDMX|Mérida": 1320,
-  "CDMX|León": 390, "CDMX|Torreón": 990, "CDMX|Veracruz": 400, "CDMX|Culiacán": 1260,
-  // Desde Guadalajara
-  "Guadalajara|Querétaro": 350, "Guadalajara|Saltillo": 720, "Guadalajara|San Luis Potosí": 330,
-  "Guadalajara|Puebla": 670, "Guadalajara|Tijuana": 2200, "Guadalajara|Hermosillo": 1400,
-  "Guadalajara|Chihuahua": 1350, "Guadalajara|Mérida": 1850, "Guadalajara|León": 220,
-  "Guadalajara|Torreón": 700, "Guadalajara|Veracruz": 940, "Guadalajara|Culiacán": 720,
-  // Otras rutas frecuentes
-  "Saltillo|Torreón": 260, "Saltillo|San Luis Potosí": 450, "Querétaro|León": 190,
-  "Querétaro|San Luis Potosí": 205, "Tijuana|Hermosillo": 880, "Hermosillo|Culiacán": 700,
-  "Chihuahua|Torreón": 470, "Puebla|Veracruz": 290, "Veracruz|Mérida": 950, "Puebla|Mérida": 1180
-};
-
-/** Factor para convertir distancia en línea recta a distancia por carretera (estimación). */
-const FACTOR_CARRETERA = 1.3;
-
-/** Normaliza texto para comparar ciudades ("mérida" = "Merida" = " MÉRIDA "). */
-function normalizar(txt) {
-  return String(txt || "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
-/** Busca el nombre oficial de una ciudad del catálogo a partir de lo escrito.
- *  Acepta sinónimos comunes de CDMX. Regresa null si no la encuentra. */
-function buscarCiudad(txt) {
-  const n = normalizar(txt);
-  const sinonimos = { "ciudad de mexico": "CDMX", "mexico": "CDMX", "df": "CDMX", "cdmx": "CDMX", "slp": "San Luis Potosí", "mty": "Monterrey", "gdl": "Guadalajara" };
-  if (sinonimos[n]) return sinonimos[n];
-  return Object.keys(CIUDADES).find(c => normalizar(c) === n) || null;
-}
-
-/** Distancia en línea recta (fórmula de Haversine) en km. */
-function distanciaLineaRecta([lat1, lon1], [lat2, lon2]) {
-  const R = 6371, rad = Math.PI / 180;
-  const dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(a));
-}
-
-/* -----------------------------------------------------------------------
-   >>> PUNTO DE CONEXIÓN PARA DISTANCIAS REALES (Google Maps / OpenRouteService) <<<
-   Hoy esta función usa la tabla de arriba. En el futuro se puede pedir a
-   Claude que la cambie para consultar una API de rutas, por ejemplo:
-     - Google Maps Distance Matrix API (requiere API key y facturación)
-     - OpenRouteService (tiene plan gratuito, requiere API key)
-   Mantener la MISMA forma de respuesta para no romper el resto de la página:
-     { km: número | null, fuente: "tabla" | "estimado" | "api" | "sin datos" }
-   Si se conecta una API, la función tendrá que volverse `async` y quien la
-   llama (actualizarDistancia) deberá usar `await`.
-   ----------------------------------------------------------------------- */
-function obtenerDistanciaKm(origen, destino) {
-  const a = buscarCiudad(origen), b = buscarCiudad(destino);
-  if (!a || !b) return { km: null, fuente: "sin datos" };
-  if (a === b) return { km: 30, fuente: "tabla" }; // reparto local (valor de ejemplo)
-  const km = TABLA_DISTANCIAS[a + "|" + b] ?? TABLA_DISTANCIAS[b + "|" + a];
-  if (km) return { km, fuente: "tabla" };
-  // No está en la tabla: estimación por coordenadas × factor carretero
-  const est = distanciaLineaRecta(CIUDADES[a], CIUDADES[b]) * FACTOR_CARRETERA;
-  return { km: Math.round(est / 10) * 10, fuente: "estimado" };
-  // TODO (futuro): reemplazar por llamada a API, ej.:
-  // const r = await fetch(`https://api.openrouteservice.org/v2/directions/driving-hgv?api_key=TU_KEY&start=${lon1},${lat1}&end=${lon2},${lat2}`);
-  // const datos = await r.json(); return { km: datos.features[0].properties.summary.distance / 1000, fuente: "api" };
-}
+/* #######################################################################
+   ##   SECCIÓN C: DATOS DEL EXCEL                                      ##
+   ##   === NO EDITAR A MANO: se regenera desde el Excel con ===        ##
+   ##     python3 tools/excel_a_json.py ARCHIVO.xlsx --reemplazar index.html
+   ##   parametros  = hoja Tarifas D5:D12 (costos de unidades propias)  ##
+   ##   tiposLlanta = hoja Tarifas B15:G19 (kg, paquetería $/llanta,    ##
+   ##                 capacidad Nissan / Camión 3.5 / Tráiler)          ##
+   ##   destinos    = hoja Tarifas B23:G.. (tipo, km sencillo desde     ##
+   ##                 Monterrey, casetas por viaje, fletera sin IVA)    ##
+   ####################################################################### */
+const DATOS_EXCEL = {"fuente":"Excel COTIZADOR DE FLETES · MAYOREO (hoja Tarifas)","origen":"Monterrey, N.L.","parametros":{"costoKmCamion35":4,"costoKmNissan":7,"costoKmTrailer":null,"comidas":600,"permiso":500,"sueldoDiario":857.1428571428571,"tiempoExtra":800,"iva":0.16},"tiposLlanta":[{"nombre":"Chica","kg":9,"paqueteria":58,"capNissan":80,"capCamion35":200,"capTrailer":1800},{"nombre":"Mediana","kg":9,"paqueteria":58,"capNissan":80,"capCamion35":200,"capTrailer":1200},{"nombre":"Grande","kg":9,"paqueteria":58,"capNissan":80,"capCamion35":200,"capTrailer":1200},{"nombre":"Extra Grande","kg":9,"paqueteria":58,"capNissan":80,"capCamion35":200,"capTrailer":900},{"nombre":"Camión","kg":50,"paqueteria":116,"capNissan":80,"capCamion35":200,"capTrailer":450}],"destinos":[{"nombre":"Zona Centro Norte","tipo":"Local","km":null,"casetas":null,"fleteraSinIva":null},{"nombre":"Zona Sur","tipo":"Local","km":null,"casetas":null,"fleteraSinIva":null},{"nombre":"Zona Poniente","tipo":"Local","km":null,"casetas":null,"fleteraSinIva":null},{"nombre":"Zona Oriente","tipo":"Local","km":null,"casetas":null,"fleteraSinIva":null},{"nombre":"Zona Norte","tipo":"Local","km":null,"casetas":null,"fleteraSinIva":null},{"nombre":"Acuña","tipo":"Nacional","km":479,"casetas":null,"fleteraSinIva":null},{"nombre":"Agujita","tipo":"Nacional","km":317,"casetas":null,"fleteraSinIva":null},{"nombre":"Allende","tipo":"Nacional","km":384,"casetas":null,"fleteraSinIva":null},{"nombre":"Arteaga","tipo":"Nacional","km":89,"casetas":null,"fleteraSinIva":null},{"nombre":"Castaños","tipo":"Nacional","km":181,"casetas":null,"fleteraSinIva":null},{"nombre":"Cloete","tipo":"Nacional","km":313,"casetas":null,"fleteraSinIva":null},{"nombre":"Cuatro Ciénegas","tipo":"Nacional","km":280,"casetas":null,"fleteraSinIva":null},{"nombre":"Durango","tipo":"Nacional","km":592,"casetas":null,"fleteraSinIva":null},{"nombre":"Francisco I. Madero","tipo":"Nacional","km":329,"casetas":null,"fleteraSinIva":null},{"nombre":"Frontera","tipo":"Nacional","km":199,"casetas":null,"fleteraSinIva":null},{"nombre":"Gomez Palacio","tipo":"Nacional","km":337,"casetas":null,"fleteraSinIva":null},{"nombre":"Jimenez","tipo":"Nacional","km":445,"casetas":null,"fleteraSinIva":null},{"nombre":"La Madrid","tipo":"Nacional","km":235,"casetas":null,"fleteraSinIva":null},{"nombre":"Lerdo","tipo":"Nacional","km":346,"casetas":null,"fleteraSinIva":null},{"nombre":"Matamoros, Coahuila","tipo":"Nacional","km":310,"casetas":null,"fleteraSinIva":null},{"nombre":"Matamoros, Tamaulipas","tipo":"Nacional","km":310,"casetas":null,"fleteraSinIva":null},{"nombre":"Minas de Barroteran","tipo":"Nacional","km":330,"casetas":null,"fleteraSinIva":null},{"nombre":"Monclova","tipo":"Nacional","km":194,"casetas":null,"fleteraSinIva":18900},{"nombre":"Morelos","tipo":"Nacional","km":393,"casetas":null,"fleteraSinIva":null},{"nombre":"Muzquiz","tipo":"Nacional","km":360,"casetas":null,"fleteraSinIva":null},{"nombre":"Nadadores","tipo":"Nacional","km":224,"casetas":null,"fleteraSinIva":null},{"nombre":"Nueva Rosita","tipo":"Nacional","km":322,"casetas":null,"fleteraSinIva":null},{"nombre":"Nuevo Laredo","tipo":"Nacional","km":220,"casetas":null,"fleteraSinIva":19000},{"nombre":"Palau","tipo":"Nacional","km":350,"casetas":null,"fleteraSinIva":null},{"nombre":"Piedras Negras","tipo":"Nacional","km":405,"casetas":null,"fleteraSinIva":28900},{"nombre":"Puebla","tipo":"Nacional","km":985,"casetas":null,"fleteraSinIva":37000},{"nombre":"Ramosarizpe","tipo":"Nacional","km":81,"casetas":null,"fleteraSinIva":null},{"nombre":"Reynosa, Tamauipas","tipo":"Nacional","km":225,"casetas":null,"fleteraSinIva":null},{"nombre":"Rio Bravo","tipo":"Nacional","km":245,"casetas":null,"fleteraSinIva":null},{"nombre":"Sabinas Coahuila","tipo":"Nacional","km":309,"casetas":null,"fleteraSinIva":24000},{"nombre":"Sabinas HIdalgo","tipo":"Nacional","km":105,"casetas":null,"fleteraSinIva":null},{"nombre":"Sacaramento","tipo":"Nacional","km":250,"casetas":null,"fleteraSinIva":null},{"nombre":"Saltillo","tipo":"Nacional","km":93,"casetas":null,"fleteraSinIva":17500},{"nombre":"San Buenavetura","tipo":"Nacional","km":218,"casetas":null,"fleteraSinIva":null},{"nombre":"San Carlos","tipo":"Nacional","km":450,"casetas":null,"fleteraSinIva":null},{"nombre":"San Fernando","tipo":"Nacional","km":395,"casetas":null,"fleteraSinIva":null},{"nombre":"San Juan de Sabinas","tipo":"Nacional","km":322,"casetas":null,"fleteraSinIva":null},{"nombre":"San Pedro, Coahuila","tipo":"Nacional","km":345,"casetas":null,"fleteraSinIva":null},{"nombre":"Tampico, Tamaulipas","tipo":"Nacional","km":525,"casetas":null,"fleteraSinIva":null},{"nombre":"Torreón, Coahuila","tipo":"Nacional","km":335,"casetas":null,"fleteraSinIva":35000},{"nombre":"Valle Hermoso","tipo":"Nacional","km":295,"casetas":null,"fleteraSinIva":null},{"nombre":"Victoria, Tamaulipas","tipo":"Nacional","km":285,"casetas":null,"fleteraSinIva":24000},{"nombre":"Villa de Fuente","tipo":"Nacional","km":402,"casetas":null,"fleteraSinIva":null},{"nombre":"Villaunión","tipo":"Nacional","km":390,"casetas":null,"fleteraSinIva":null},{"nombre":"Zaragoza","tipo":"Nacional","km":425,"casetas":null,"fleteraSinIva":null}]}; // FIN DATOS_EXCEL
 
 /* #######################################################################
-   #######################################################################
+   ##   SECCIÓN D: CÁLCULO (replica la hoja "Cotizador" del Excel)      ##
+   ##   === AQUÍ VA LA LÓGICA (pídele a Claude que modifique solo esta  ##
+   ##       sección) ===                                                ##
    ##                                                                   ##
-   ##   SECCIÓN C: TARIFAS  (VALORES DE EJEMPLO — NO SON REALES)        ##
-   ##   === AQUÍ VAN LAS TARIFAS (pídele a Claude que modifique solo    ##
-   ##       esta sección y la sección D) ===                            ##
+   ##   datos = { destino: "Allende", cantidades: { "Chica": 80, ... } }##
+   ##   p     = parámetros (DATOS_EXCEL.parametros + cambios guardados) ##
    ##                                                                   ##
-   #######################################################################
-   #######################################################################
-   Cada tarifa tiene: valor, etiqueta (texto en pantalla), unidad y grupo.
-   La pantalla "Configuración de tarifas" se construye sola a partir de
-   este objeto: si agregas una tarifa nueva aquí, aparecerá en el modal.
-   Cuando las tarifas ya sean las reales, cambia `esEjemplo` a false.   */
-const TARIFAS_EJEMPLO = {
-  esEjemplo: true,
-  moneda: "MXN",
-  valores: {
-    // --- Costo base por kilómetro, según vehículo ---
-    kmCamioneta: { valor: 18, etiqueta: "Costo por km — Camioneta", unidad: "$/km", grupo: "Costo por km (según vehículo)" },
-    kmRabon:     { valor: 26, etiqueta: "Costo por km — Rabón",     unidad: "$/km", grupo: "Costo por km (según vehículo)" },
-    kmTorton:    { valor: 32, etiqueta: "Costo por km — Torton",    unidad: "$/km", grupo: "Costo por km (según vehículo)" },
-    kmTrailer:   { valor: 45, etiqueta: "Costo por km — Tráiler 53'", unidad: "$/km", grupo: "Costo por km (según vehículo)" },
-    // --- Cargo por llanta (maniobra/manejo), según tipo ---
-    llantaAuto:     { valor: 15,  etiqueta: "Por llanta — Auto/Camioneta", unidad: "$/pza", grupo: "Cargo por llanta (según tipo)" },
-    llantaCamion:   { valor: 45,  etiqueta: "Por llanta — Camión/Carga",   unidad: "$/pza", grupo: "Cargo por llanta (según tipo)" },
-    llantaAgricola: { valor: 90,  etiqueta: "Por llanta — Agrícola",       unidad: "$/pza", grupo: "Cargo por llanta (según tipo)" },
-    llantaOtr:      { valor: 350, etiqueta: "Por llanta — OTR/Industrial", unidad: "$/pza", grupo: "Cargo por llanta (según tipo)" },
-    // --- Reglas generales ---
-    minimoEnvio:  { valor: 2500, etiqueta: "Mínimo por envío (antes de IVA)", unidad: "$",  grupo: "Reglas generales" },
-    pctExpress:   { valor: 25,   etiqueta: "Recargo Express",                 unidad: "%",  grupo: "Reglas generales" },
-    pctIVA:       { valor: 16,   etiqueta: "IVA",                             unidad: "%",  grupo: "Reglas generales" },
-    // --- Placeholders (en 0 = no se cobran hasta configurarlos) ---
-    casetasPorKm:     { valor: 0, etiqueta: "Casetas / peajes (estimado por km)", unidad: "$/km", grupo: "Pendientes de configurar (0 = no se cobra)" },
-    precioDiesel:     { valor: 0, etiqueta: "Precio del diésel",                  unidad: "$/L",  grupo: "Pendientes de configurar (0 = no se cobra)" },
-    rendimientoDiesel:{ valor: 3, etiqueta: "Rendimiento del vehículo",           unidad: "km/L", grupo: "Pendientes de configurar (0 = no se cobra)" }
+   ##   Excel (hoja Tarifas, por destino):                              ##
+   ##     Km redondo           = km sencillo × 2                        ##
+   ##     Costo viaje Nissan   = km redondo × $/km Nissan + comidas     ##
+   ##                            + permiso + sueldo diario + tiempo     ##
+   ##                            extra + casetas                        ##
+   ##     Costo viaje Cam. 3.5 = igual, con $/km Camión 3.5             ##
+   ##     Costo viaje Tráiler  = igual, con $/km Tráiler (vacío = sin   ##
+   ##                            tarifa)                                ##
+   ##     (Todos los costos se comparan SIN IVA; el IVA se suma al     ##
+   ##      precio de venta en la sección D2.)                           ##
+   ##   Excel (hoja Cotizador):                                         ##
+   ##     Paquetería  = Σ cantidad × $/llanta del tipo                  ##
+   ##     Ocupación   = Σ cantidad ÷ capacidad del tipo (por unidad)    ##
+   ##     Unidades propias: máximo 1 viaje; si ocupación > 100% =       ##
+   ##                       "No cabe" y no se considera.                ##
+   ##     Fletera     = tarifa por tráiler × viajes de tráiler  (*)     ##
+   ##     Recomendada = la de menor costo total.                        ##
+   ##   (*) En el Excel la celda Cotizador!D20 devuelve 0 cuando hay    ##
+   ##       tarifa (fórmula incompleta). Aquí se usa la tarifa SIN IVA  ##
+   ##       × viajes de tráiler (mín. 1), para comparar todo en la      ##
+   ##       misma base (sin IVA). CONFIRMAR con el usuario.             ##
+   ####################################################################### */
+function costoViajePropio(destino, costoKm, p) {
+  if (destino.km == null || costoKm == null || costoKm === "") return null;   // =IF(E="","",...)
+  const kmRedondo = destino.km * 2;
+  return kmRedondo * costoKm + p.comidas + p.permiso + p.sueldoDiario + p.tiempoExtra + (destino.casetas || 0);
+}
+
+function calcularCotizacion(datos, p, tipos, destinos) {
+  tipos = tipos || DATOS_EXCEL.tiposLlanta;
+  destinos = destinos || DATOS_EXCEL.destinos;
+  const destino = destinos.find(d => d.nombre === datos.destino);
+  if (!destino) throw new Error("Destino no encontrado: " + datos.destino);
+
+  // ---- Paso 2: llantas, kg, paquetería y ocupación (Cotizador!C9:H14) ----
+  const lineas = tipos.map(t => {
+    const q = Number(datos.cantidades[t.nombre]) || 0;
+    const pq = (p.paqueteria && p.paqueteria[t.nombre] != null) ? p.paqueteria[t.nombre] : t.paqueteria;
+    return {
+      tipo: t.nombre, cantidad: q, kg: q * t.kg, paqueteria: q * pq, tarifaPaq: pq,
+      ocNissan: t.capNissan ? q / t.capNissan : 0,
+      ocCamion35: t.capCamion35 ? q / t.capCamion35 : 0,
+      ocTrailer: t.capTrailer ? q / t.capTrailer : 0
+    };
+  });
+  const suma = k => lineas.reduce((s, l) => s + l[k], 0);
+  const totalLlantas = suma("cantidad"), totalKg = suma("kg");
+  const ocupacion = { nissan: suma("ocNissan"), camion35: suma("ocCamion35"), trailer: suma("ocTrailer") };
+
+  // ---- Paso 3: opciones (Cotizador!B19:G23) ----
+  const pct = x => Math.round(x * 100) + "%";
+  const opciones = [];
+  // Paquetería
+  opciones.push({ id: "paqueteria", nombre: "Paquetería", detalle: "Tarifa por llanta según tamaño", costo: suma("paqueteria") });
+  // Fletera
+  const viajesTrailer = Math.max(1, Math.ceil(ocupacion.trailer - 1e-9));
+  if (destino.fleteraSinIva != null) {
+    opciones.push({ id: "fletera", nombre: "Fletera", costo: destino.fleteraSinIva * viajesTrailer,
+      detalle: `${viajesTrailer} viaje(s) de tráiler × ${fmtMXN(destino.fleteraSinIva)} (sin IVA)` });
+  } else {
+    opciones.push({ id: "fletera", nombre: "Fletera", costo: null, motivo: "Sin tarifa", detalle: "Falta tarifa en Tarifas" });
   }
-};
-
-/* #######################################################################
-   ##                                                                   ##
-   ##   SECCIÓN D: CÁLCULO DE LA COTIZACIÓN                             ##
-   ##   === AQUÍ VA LA LÓGICA DE CÁLCULO (pídele a Claude que modifique ##
-   ##       solo esta sección) ===                                      ##
-   ##                                                                   ##
-   #######################################################################
-   ENTRADA  `datos`:   { origen, destino, km, tipoLlanta, cantidad,
-                         vehiculo, urgencia: "normal"|"express" }
-   ENTRADA  `tarifas`: objeto plano { kmCamioneta: 18, pctIVA: 16, ... }
-   SALIDA (no cambiar la forma, la pantalla depende de ella):
-     {
-       conceptos: [ { concepto, detalle, monto, pendiente? } ],  // renglones del desglose
-       subtotal, iva, total,                                     // números en MXN
-       vehiculo,                                                 // clave del vehículo usado
-       pesoTotalKg,
-       alertas: [ "texto", ... ]                                 // avisos para el vendedor
-     }
-   Esta función NO toca la pantalla: solo recibe números y regresa números.
-   Así se puede probar sola y cambiar sin romper el diseño.            */
-function calcularCotizacion(datos, tarifas) {
-  const t = tarifas;
-  const alertas = [];
-  const km = Math.max(0, Number(datos.km) || 0);
-  const cantidad = Math.max(0, Math.floor(Number(datos.cantidad) || 0));
-  const llanta = TIPOS_LLANTA[datos.tipoLlanta] || TIPOS_LLANTA.auto;
-  const pesoTotalKg = cantidad * llanta.pesoKg;
-
-  // 1) Vehículo: el elegido, o el más chico donde quepa la carga (peso de ejemplo)
-  let vehiculo = datos.vehiculo;
-  if (!vehiculo || vehiculo === "auto") {
-    vehiculo = ["camioneta", "rabon", "torton", "trailer"]
-      .find(v => VEHICULOS[v].capacidadKg >= pesoTotalKg) || "trailer";
-    alertas.push(`Vehículo sugerido automáticamente: ${VEHICULOS[vehiculo].nombre} (≈ ${fmtNum(pesoTotalKg)} kg de carga).`);
-  }
-  const capacidad = VEHICULOS[vehiculo].capacidadKg;
-  if (capacidad && pesoTotalKg > capacidad) {
-    alertas.push(`La carga (≈ ${fmtNum(pesoTotalKg)} kg) supera la capacidad de ejemplo del vehículo (${fmtNum(capacidad)} kg). Considera más viajes o un vehículo mayor.`);
-  }
-
-  // 2) Costo base por km según vehículo
-  const costoKmPorVehiculo = { camioneta: t.kmCamioneta, rabon: t.kmRabon, torton: t.kmTorton, trailer: t.kmTrailer };
-  const costoKm = costoKmPorVehiculo[vehiculo] || 0;
-  const base = km * costoKm;
-
-  // 3) Cargo por llanta según tipo
-  const cargoPorLlantaTipo = { auto: t.llantaAuto, camion: t.llantaCamion, agricola: t.llantaAgricola, otr: t.llantaOtr };
-  const cargoUnit = cargoPorLlantaTipo[datos.tipoLlanta] || 0;
-  const cargoLlantas = cantidad * cargoUnit;
-
-  // 4) Placeholders: casetas y combustible (si están en 0 no se cobran)
-  const casetas = km * (t.casetasPorKm || 0);
-  const combustible = (t.precioDiesel > 0 && t.rendimientoDiesel > 0) ? (km / t.rendimientoDiesel) * t.precioDiesel : 0;
-
-  // 5) Recargo express sobre (base + llantas)
-  const express = datos.urgencia === "express" ? (base + cargoLlantas) * (t.pctExpress / 100) : 0;
-
-  const conceptos = [
-    { concepto: "Costo base por km", detalle: `${fmtNum(km)} km × ${fmtMXN(costoKm)} (${VEHICULOS[vehiculo].nombre})`, monto: base },
-    { concepto: "Cargo por llanta",  detalle: `${fmtNum(cantidad)} pza × ${fmtMXN(cargoUnit)} (${llanta.nombre})`, monto: cargoLlantas }
+  // Unidades propias (máximo 1 viaje)
+  const propias = [
+    ["nissan", "Unidades propias · Nissan NP300", p.costoKmNissan, ocupacion.nissan],
+    ["camion35", "Unidades propias · Camión 3.5", p.costoKmCamion35, ocupacion.camion35],
+    ["trailer", "Unidades propias · Tráiler", p.costoKmTrailer, ocupacion.trailer]
   ];
-  if (datos.urgencia === "express") {
-    conceptos.push({ concepto: "Recargo Express", detalle: `${t.pctExpress}% sobre base + llantas`, monto: express });
+  for (const [id, nombre, costoKm, oc] of propias) {
+    const costoViaje = costoViajePropio(destino, costoKm, p);
+    const op = { id, nombre, ocupacion: oc, costoKm };
+    if (oc > 1) { op.costo = null; op.motivo = "No cabe"; op.detalle = `Excede capacidad de 1 viaje (ocupación ${pct(oc)})`; }
+    else if (costoViaje == null) { op.costo = null; op.motivo = "Sin tarifa"; op.detalle = `1 viaje · ocupación ${pct(oc)}`; }
+    else {
+      op.costo = costoViaje; op.detalle = `1 viaje · ocupación ${pct(oc)}`;
+      op.desglose = [
+        ["Km redondo × $/km", `${fmtNum(destino.km * 2)} km × ${fmtMXN(costoKm)}`, destino.km * 2 * costoKm],
+        ["Comidas", "por viaje", p.comidas],
+        ["Permiso municipal", "por viaje", p.permiso],
+        ["Sueldo diario chofer", "por viaje", p.sueldoDiario],
+        ["Tiempo extra", "por viaje", p.tiempoExtra],
+        ["Casetas", destino.casetas ? "por viaje" : "no capturadas en el Excel", destino.casetas || 0]
+      ];
+    }
+    opciones.push(op);
   }
-  conceptos.push({ concepto: "Casetas / peajes", detalle: t.casetasPorKm ? `${fmtNum(km)} km × ${fmtMXN(t.casetasPorKm)}` : "Pendiente de configurar", monto: casetas, pendiente: !t.casetasPorKm });
-  conceptos.push({ concepto: "Combustible", detalle: combustible ? `${fmtNum(Math.round(km / t.rendimientoDiesel))} L × ${fmtMXN(t.precioDiesel)}` : "Pendiente de configurar", monto: combustible, pendiente: !combustible });
 
-  // 6) Mínimo por envío
-  let subtotal = base + cargoLlantas + express + casetas + combustible;
-  if (subtotal < t.minimoEnvio) {
-    conceptos.push({ concepto: "Ajuste a mínimo por envío", detalle: `Mínimo ${fmtMXN(t.minimoEnvio)}`, monto: t.minimoEnvio - subtotal });
-    subtotal = t.minimoEnvio;
+  // Costo por llanta, ranking y diferencia vs. la mejor
+  if (totalLlantas === 0) opciones.forEach(o => { o.costo = null; o.motivo = o.motivo || "Sin llantas"; });
+  const validas = opciones.filter(o => typeof o.costo === "number");
+  const min = validas.length ? Math.min(...validas.map(o => o.costo)) : null;
+  for (const o of opciones) {
+    if (typeof o.costo === "number") {
+      o.porLlanta = o.costo / totalLlantas;
+      o.lugar = 1 + validas.filter(v => v.costo < o.costo).length;           // RANK.EQ ascendente
+      o.difPorLlanta = o.porLlanta - min / totalLlantas;
+    }
   }
+  const mejor = validas.length ? opciones.find(o => o.costo === min) : null;  // INDEX/MATCH(MIN)
 
-  // 7) IVA y total (redondeo a centavos)
-  subtotal = redondear(subtotal);
-  const iva = redondear(subtotal * (t.pctIVA / 100));
-  const total = redondear(subtotal + iva);
+  const alertas = [];
+  if (destino.km == null) alertas.push("Este destino no tiene km en el Excel: las unidades propias quedan sin tarifa.");
+  if (destino.fleteraSinIva == null) alertas.push("Este destino no tiene tarifa de fletera en el Excel.");
+  if (p.costoKmTrailer == null) alertas.push("El costo por km del tráiler propio está vacío en el Excel (Tarifas!D7).");
+  if (!destino.casetas) alertas.push("Casetas: no hay monto capturado para este destino en el Excel (se toman $0).");
 
-  if (!km) alertas.push("Falta la distancia en km: el costo por km quedó en $0.");
-  return { conceptos, subtotal, iva, total, vehiculo, pesoTotalKg, alertas };
+  const r = { destino, lineas, totalLlantas, totalKg, ocupacion, opciones, mejor, viajesTrailer, alertas };
+  return aplicarPrecios(r, p);   // agrega el precio de venta (sección D2)
+}
+
+/* #######################################################################
+   ##   SECCIÓN D2: PRECIO DE VENTA AL CLIENTE (margen + IVA)           ##
+   ##   === AQUÍ SE DEFINE EL MARGEN ===                                ##
+   ##                                                                   ##
+   ##   1) Costo interno SIN IVA (sección D). La recomendación es la    ##
+   ##      opción de MENOR COSTO interno.                               ##
+   ##   2) Subtotal = costo × (1 + margen%)                             ##
+   ##        margen% = margen del modo (si está capturado)              ##
+   ##                  si no, margen general                            ##
+   ##   3) Si hay precio mínimo y el subtotal es menor → se usa el      ##
+   ##      mínimo (antes de IVA).                                       ##
+   ##   4) IVA = subtotal × 16%   ·   Total = subtotal + IVA            ##
+   ##                                                                   ##
+   ##   MARGEN_BASE = valores para TODOS los equipos (este archivo).    ##
+   ##   En ⚙ Configuración se pueden cambiar solo en un navegador.      ##
+   ####################################################################### */
+const MARGEN_BASE = {
+  margenGeneral: null,      // % general. null = "Margen pendiente de definir" (se usa 0%)
+  margenPorModo: {          // % por forma de envío; null = usa el margen general
+    paqueteria: null, fletera: null, nissan: null, camion35: null, trailer: null
+  },
+  precioMinimo: null,       // $ mínimo de venta ANTES de IVA; null = sin mínimo
+  margenPrueba: false,      // true = el margen es un valor de prueba (se avisa en pantalla)
+  vigenciaDias: 7           // vigencia que se muestra al cliente
+};
+/** Nombre de cada forma de envío como lo ve el cliente. */
+const NOMBRE_CLIENTE = {
+  paqueteria: "Paquetería", fletera: "Fletera (tráiler)",
+  nissan: "Camioneta Nissan NP300", camion35: "Camión 3.5 ton", trailer: "Tráiler"
+};
+function margenDe(id, p) {
+  const m = p.margenPorModo ? p.margenPorModo[id] : null;
+  if (m != null && m !== "") return { pct: Number(m), origen: "modo" };
+  if (p.margenGeneral != null && p.margenGeneral !== "") return { pct: Number(p.margenGeneral), origen: "general" };
+  return { pct: 0, origen: "pendiente" };
+}
+function precioVenta(costo, id, p) {
+  if (typeof costo !== "number") return null;
+  const mg = margenDe(id, p);
+  const conMargen = costo * (1 + mg.pct / 100);
+  const minimo = (p.precioMinimo != null && p.precioMinimo !== "") ? Number(p.precioMinimo) : null;
+  const aplicaMinimo = minimo != null && conMargen < minimo;
+  const subtotal = aplicaMinimo ? minimo : conMargen;
+  const iva = subtotal * p.iva;
+  return { costo, margenPct: mg.pct, origenMargen: mg.origen, conMargen, aplicaMinimo, subtotal, iva, total: subtotal + iva };
+}
+/** "pendiente" (sin margen general), "prueba" o "definido". */
+function estadoMargen(p) {
+  if (p.margenGeneral == null || p.margenGeneral === "") return "pendiente";
+  return p.margenPrueba ? "prueba" : "definido";
+}
+function aplicarPrecios(r, p) {
+  for (const o of r.opciones) {
+    o.nombreCliente = NOMBRE_CLIENTE[o.id] || o.nombre;
+    o.venta = precioVenta(o.costo, o.id, p);
+    if (o.venta && r.totalLlantas) o.venta.porLlanta = o.venta.total / r.totalLlantas;
+  }
+  r.estadoMargen = estadoMargen(p);
+  r.margenGeneral = p.margenGeneral;
+  r.vigenciaDias = p.vigenciaDias;
+  r.iva = p.iva;
+  return r;
 }
 /* ===================== FIN DE LA LÓGICA DE CÁLCULO ===================== */
 
 /* ---- Utilidades de formato (usadas por el cálculo y la pantalla) ---- */
-function redondear(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 function fmtMXN(n) { return (Number(n) || 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" }); }
-function fmtNum(n) { return (Number(n) || 0).toLocaleString("es-MX"); }
+function fmtNum(n) { return (Number(n) || 0).toLocaleString("es-MX", { maximumFractionDigits: 2 }); }
+function fmtPct(x) { return Math.round((Number(x) || 0) * 100) + "%"; }
 function escapar(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
 // Permite probar el cálculo desde Node.js (no afecta al navegador)
-if (typeof module !== "undefined") { module.exports = { calcularCotizacion, obtenerDistanciaKm, TARIFAS_EJEMPLO }; }
+if (typeof module !== "undefined") { module.exports = { calcularCotizacion, costoViajePropio, precioVenta, DATOS_EXCEL, MARGEN_BASE, parametrosBase }; }
 
 /* =======================================================================
    SECCIÓN E: CONFIGURACIÓN GUARDADA (localStorage)
-   Las tarifas editadas en el modal se guardan en el navegador.
+   Los cambios hechos en el modal se guardan solo en este navegador.
    ======================================================================= */
-const CLAVE_TARIFAS = "cotizadorLlantas.tarifas.v1";
-const CLAVE_HISTORIAL = "cotizadorLlantas.historial.v1";
+const CLAVE_TARIFAS = "cotizadorFletes.tarifas.v2";
+const CLAVE_HISTORIAL = "cotizadorFletes.historial.v3";   // v3: guarda precio de venta
 
-/** Regresa las tarifas como objeto plano { clave: número }, mezclando
- *  las de ejemplo con lo que el usuario haya guardado. */
+/** Parámetros del Excel (sin cambios del usuario). */
+function parametrosBase() {
+  const p = Object.assign({}, DATOS_EXCEL.parametros);
+  p.paqueteria = {};
+  for (const t of DATOS_EXCEL.tiposLlanta) p.paqueteria[t.nombre] = t.paqueteria;
+  Object.assign(p, JSON.parse(JSON.stringify(MARGEN_BASE)));   // margen (sección D2)
+  return p;
+}
+/** Campos editables en el modal: [clave, etiqueta, unidad, grupo] */
+const CAMPOS_CONFIG = [
+  ["costoKmNissan", "Costo por km Nissan NP300", "$/km", "Unidades propias"],
+  ["costoKmCamion35", "Costo por km Camión 3.5 (RAM)", "$/km", "Unidades propias"],
+  ["costoKmTrailer", "Costo por km Tráiler propio", "$/km · vacío = sin tarifa", "Unidades propias"],
+  ["comidas", "Comidas por viaje", "$", "Gastos por viaje"],
+  ["permiso", "Permiso municipal por viaje", "$", "Gastos por viaje"],
+  ["sueldoDiario", "Sueldo diario chofer", "$", "Gastos por viaje"],
+  ["tiempoExtra", "Tiempo extra por viaje", "$", "Gastos por viaje"],
+  ["iva", "IVA al cliente", "fracción, 0.16 = 16%", "IVA"]
+];
+/** Campos de margen / precio de venta: [clave, etiqueta, unidad] */
+const CAMPOS_MARGEN = [
+  ["margenGeneral", "Margen general", "% · vacío = pendiente"],
+  ["precioMinimo", "Precio mínimo de venta", "$ antes de IVA · vacío = sin mínimo"],
+  ["vigenciaDias", "Vigencia de la cotización", "días"]
+];
 function cargarTarifas() {
-  const planas = {};
-  for (const [k, def] of Object.entries(TARIFAS_EJEMPLO.valores)) planas[k] = def.valor;
+  const p = parametrosBase();
   let personalizadas = false;
   try {
-    const guardadas = JSON.parse(localStorage.getItem(CLAVE_TARIFAS) || "null");
-    if (guardadas) {
-      for (const k of Object.keys(planas)) if (typeof guardadas[k] === "number") planas[k] = guardadas[k];
-      personalizadas = true;
+    const g = JSON.parse(localStorage.getItem(CLAVE_TARIFAS) || "null");
+    if (g) {
+      for (const [k] of CAMPOS_CONFIG) if (k in g && g[k] !== p[k]) { p[k] = g[k]; personalizadas = true; }
+      if (g.paqueteria) for (const n of Object.keys(p.paqueteria))
+        if (typeof g.paqueteria[n] === "number" && g.paqueteria[n] !== p.paqueteria[n]) { p.paqueteria[n] = g.paqueteria[n]; personalizadas = true; }
+      // El margen no cuenta como "tarifa modificada"
+      for (const [k] of CAMPOS_MARGEN) if (k in g) p[k] = g[k];
+      if ("margenPrueba" in g) p.margenPrueba = !!g.margenPrueba;
+      if (g.margenPorModo) for (const id of Object.keys(p.margenPorModo)) if (id in g.margenPorModo) p.margenPorModo[id] = g.margenPorModo[id];
     }
-  } catch (e) { /* localStorage no disponible: se usan las de ejemplo */ }
-  return { valores: planas, personalizadas };
+  } catch (e) { /* localStorage no disponible: se usan las del Excel */ }
+  return { valores: p, personalizadas };
 }
 function guardarTarifas(valores) { try { localStorage.setItem(CLAVE_TARIFAS, JSON.stringify(valores)); } catch (e) {} }
 
@@ -561,130 +559,200 @@ function guardarTarifas(valores) { try { localStorage.setItem(CLAVE_TARIFAS, JSO
 if (typeof document !== "undefined") {
   const $ = id => document.getElementById(id);
   let tarifas = cargarTarifas();
-  let ultima = null;          // última cotización calculada
-  let kmEditadoAMano = false; // si el vendedor escribió los km, no sobrescribirlos
+  let ultima = null;   // última cotización calculada
+  const idTipo = n => "q_" + n.normalize("NFD").replace(/[^\w]/g, "");
 
   // ---- Llenar catálogos en pantalla ----
-  $("listaCiudades").innerHTML = Object.keys(CIUDADES).map(c => `<option value="${c}">`).join("");
-  $("tiposLlanta").innerHTML = Object.entries(TIPOS_LLANTA).map(([k, v], i) => `
-    <div><input type="radio" name="tipoLlanta" id="tl_${k}" value="${k}" ${i === 0 ? "checked" : ""}>
-    <label for="tl_${k}"><b>${v.icono}</b>${v.nombre}<small>${v.ejemplo} · ≈${v.pesoKg} kg</small></label></div>`).join("");
-  $("vehiculo").innerHTML = Object.entries(VEHICULOS).map(([k, v]) =>
-    `<option value="${k}">${v.nombre}${v.capacidadKg ? ` (hasta ≈${fmtNum(v.capacidadKg)} kg)` : ""}</option>`).join("");
+  $("origenTxt").textContent = DATOS_EXCEL.origen || "Monterrey";
+  const grupos = {};
+  for (const d of DATOS_EXCEL.destinos) (grupos[d.tipo || "Otros"] ||= []).push(d);
+  $("destino").innerHTML = `<option value="">— Elige destino —</option>` + Object.entries(grupos).map(([g, ds]) =>
+    `<optgroup label="${escapar(g)}">${ds.map(d => `<option value="${escapar(d.nombre)}">${escapar(d.nombre)}${d.km != null ? ` · ${d.km} km` : ""}</option>`).join("")}</optgroup>`).join("");
+  $("filasLlantas").innerHTML = DATOS_EXCEL.tiposLlanta.map(t => `
+    <tr><td><b>${escapar(t.nombre)}</b><small>${fmtNum(t.kg)} kg por llanta</small></td>
+      <td><input type="number" min="0" step="1" inputmode="numeric" id="${idTipo(t.nombre)}" data-tipo="${escapar(t.nombre)}" placeholder="0"></td>
+      <td data-kg="${escapar(t.nombre)}">0</td>
+      <td class="col-ocupa" data-oc="n">–</td><td class="col-ocupa" data-oc="c">–</td><td class="col-ocupa" data-oc="t">–</td></tr>`).join("") +
+    `<tr class="tot"><td>Total</td><td id="totLlantas">0</td><td id="totKg">0</td>
+      <td class="col-ocupa ocupa" id="ocN">0%</td><td class="col-ocupa ocupa" id="ocC">0%</td><td class="col-ocupa ocupa" id="ocT">0%</td></tr>`;
 
   function actualizarBadge() {
     const b = $("badgeTarifas");
-    const real = tarifas.personalizadas || !TARIFAS_EJEMPLO.esEjemplo;
-    b.textContent = real ? "✓ Tarifas configuradas" : "⚠ Tarifas de ejemplo — configúralas";
-    b.classList.toggle("real", real);
+    b.textContent = tarifas.personalizadas ? "⚠ Tarifas modificadas en este equipo" : "✓ Tarifas del Excel";
+    b.classList.toggle("real", !tarifas.personalizadas);
   }
 
-  // ---- Distancia automática ----
-  function actualizarDistancia(forzar) {
-    if (kmEditadoAMano && !forzar) return;
-    const r = obtenerDistanciaKm($("origen").value, $("destino").value);
-    const nota = $("notaKm");
-    if (r.km != null) {
-      $("km").value = r.km;
-      kmEditadoAMano = false;
-      nota.className = "nota" + (r.fuente === "estimado" ? " aviso" : "");
-      nota.textContent = r.fuente === "estimado"
-        ? `≈ ${fmtNum(r.km)} km ESTIMADOS (ruta no está en la tabla). Verifica en Google Maps.`
-        : `≈ ${fmtNum(r.km)} km aproximados por carretera (tabla de referencia). Puedes corregirlos.`;
-    } else {
-      nota.className = "nota aviso";
-      nota.textContent = "No hay distancia en la tabla para esta ruta: escribe los km manualmente.";
-    }
-  }
-  ["origen", "destino"].forEach(id => $(id).addEventListener("change", () => actualizarDistancia(false)));
-  ["origen", "destino"].forEach(id => $(id).addEventListener("input", () => { if (buscarCiudad($(id).value)) actualizarDistancia(false); }));
-  $("km").addEventListener("input", () => { kmEditadoAMano = true; $("notaKm").className = "nota"; $("notaKm").textContent = "Distancia capturada manualmente."; });
-  $("btnRecalcKm").addEventListener("click", () => actualizarDistancia(true));
-
-  // ---- Leer formulario ----
   function leerDatos() {
-    return {
-      origen: $("origen").value.trim(), destino: $("destino").value.trim(),
-      km: Number($("km").value) || 0,
-      tipoLlanta: document.querySelector("input[name=tipoLlanta]:checked").value,
-      cantidad: Number($("cantidad").value) || 0,
-      vehiculo: $("vehiculo").value,
-      urgencia: document.querySelector("input[name=urgencia]:checked").value,
-      cliente: $("cliente").value.trim(), vendedor: $("vendedor").value.trim(), notas: $("notas").value.trim()
-    };
+    const cantidades = {};
+    document.querySelectorAll("#filasLlantas input[data-tipo]").forEach(i => { cantidades[i.dataset.tipo] = Math.max(0, Number(i.value) || 0); });
+    return { destino: $("destino").value, cantidades,
+      cliente: $("cliente").value.trim(), vendedor: $("vendedor").value.trim(), notas: $("notas").value.trim() };
   }
+
+  // ---- Totales en vivo de la captura ----
+  function actualizarCaptura() {
+    const d = leerDatos(); let tq = 0, tkg = 0, on = 0, oc = 0, ot = 0;
+    for (const t of DATOS_EXCEL.tiposLlanta) {
+      const q = d.cantidades[t.nombre] || 0; tq += q; tkg += q * t.kg;
+      const fila = $(idTipo(t.nombre)).closest("tr");
+      fila.querySelector("[data-kg]").textContent = fmtNum(q * t.kg);
+      const a = t.capNissan ? q / t.capNissan : 0, b = t.capCamion35 ? q / t.capCamion35 : 0, c = t.capTrailer ? q / t.capTrailer : 0;
+      on += a; oc += b; ot += c;
+      fila.querySelector("[data-oc=n]").textContent = q ? fmtPct(a) : "–";
+      fila.querySelector("[data-oc=c]").textContent = q ? fmtPct(b) : "–";
+      fila.querySelector("[data-oc=t]").textContent = q ? fmtPct(c) : "–";
+    }
+    $("totLlantas").textContent = fmtNum(tq); $("totKg").textContent = fmtNum(tkg);
+    [["ocN", on], ["ocC", oc], ["ocT", ot]].forEach(([id, v]) => { $(id).textContent = fmtPct(v); $(id).classList.toggle("lleno", v > 1); });
+  }
+  $("filasLlantas").addEventListener("input", actualizarCaptura);
+
+  function mostrarInfoDestino() {
+    const d = DATOS_EXCEL.destinos.find(x => x.nombre === $("destino").value);
+    $("infoDestino").innerHTML = d ? [
+      `Tipo: ${escapar(d.tipo)}`,
+      d.km != null ? `${fmtNum(d.km)} km sencillo · ${fmtNum(d.km * 2)} km redondo` : "Sin km en el Excel",
+      d.fleteraSinIva != null ? "Con fletera" : "Sin fletera"
+    ].map(t => `<span class="chip">${t}</span>`).join("") : "";
+  }
+  $("destino").addEventListener("change", mostrarInfoDestino);
 
   // ---- Mostrar resultado ----
-  function mostrarResultado(datos, r) {
-    const fecha = new Date().toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" });
-    const filas = r.conceptos.map(c => `
-      <tr class="${c.pendiente ? "pendiente" : ""}"><td>${escapar(c.concepto)}<span class="det">${escapar(c.detalle)}</span></td><td>${fmtMXN(c.monto)}</td></tr>`).join("");
-    const ejemplo = !(tarifas.personalizadas || !TARIFAS_EJEMPLO.esEjemplo);
+  // c = { datos, resultado, fecha, seleccion }   (seleccion = id de la forma de envío elegida)
+  function opcionElegida(c) {
+    const r = c.resultado;
+    return r.opciones.find(o => o.id === c.seleccion && o.venta) || r.mejor;
+  }
+  const textoFlag = r => r.estadoMargen === "pendiente"
+    ? "⚠ Margen pendiente de definir: el precio mostrado es igual al costo (0% de margen). No enviar al cliente todavía."
+    : r.estadoMargen === "prueba" ? `⚠ Margen de PRUEBA (${fmtNum(r.margenGeneral)}%): valor temporal, no definitivo.` : "";
+  function mostrarResultado(c) {
+    const { datos, resultado: r } = c;
+    const fecha = new Date(c.fecha || Date.now()).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" });
+    const llantasTxt = r.lineas.filter(l => l.cantidad).map(l => `${fmtNum(l.cantidad)} ${escapar(l.tipo)}`).join(", ");
+    const sel = opcionElegida(c);
+    const v = sel && sel.venta;
+    const ivaPct = Math.round((r.iva ?? 0.16) * 100);
+
+    // ---- Parte para el cliente ----
+    const elegir = `<div class="elegir"><label for="selOpcion">Forma de envío:</label>
+      <select id="selOpcion">${r.opciones.filter(o => o.venta).map(o =>
+        `<option value="${o.id}" ${o === sel ? "selected" : ""}>${escapar(o.nombreCliente)} — ${fmtMXN(o.venta.total)}${o === r.mejor ? " (recomendada)" : ""}</option>`).join("")}</select></div>`;
+    const precio = v ? `
+      <div class="precio-cliente">
+        <div class="forma">Forma de envío: <b>${escapar(sel.nombreCliente)}</b></div>
+        <table>
+          <tr><td>Subtotal</td><td>${fmtMXN(v.subtotal)}</td></tr>
+          <tr><td>IVA ${ivaPct}%</td><td>${fmtMXN(v.iva)}</td></tr>
+          <tr class="gran"><td>Total</td><td>${fmtMXN(v.total)}</td></tr>
+          <tr><td>Precio por llanta (con IVA)</td><td>${fmtMXN(v.porLlanta)}</td></tr>
+        </table>
+        <div class="vigencia">Precios en pesos mexicanos (MXN). Vigencia: ${fmtNum(r.vigenciaDias || 7)} días a partir de la fecha de cotización. Sujeto a disponibilidad de unidades.</div>
+      </div>` : `<div class="alerta">No hay forma de envío disponible para este destino y carga.</div>`;
+
+    // ---- Detalle interno (solo vendedor) ----
+    const filas = r.opciones.map(o => `
+      <tr class="${o === sel ? "mejor" : ""} ${o.costo == null ? "na" : ""}">
+        <td>${o.lugar ? `<span class="lugar">${o.lugar}</span> ` : ""}${escapar(o.nombre)}<span class="det">${escapar(o.detalle || "")}</span></td>
+        <td>${o.costo == null ? escapar(o.motivo || "") : fmtMXN(o.costo)}</td>
+        <td>${o.venta ? fmtNum(o.venta.margenPct) + "%" + (o.venta.origenMargen === "modo" ? "*" : "") : ""}</td>
+        <td>${o.venta ? fmtMXN(o.venta.subtotal) + (o.venta.aplicaMinimo ? " (mín.)" : "") : ""}</td>
+        <td>${o.venta ? fmtMXN(o.venta.total) : ""}</td>
+      </tr>`).join("");
+    const desglose = sel && sel.desglose ? `
+      <div class="sub-tit">Desglose del costo · ${escapar(sel.nombre)}</div>
+      <table class="desglose">${sel.desglose.map(([cc, d, val]) => `<tr><td>${escapar(cc)}<span class="det">${escapar(d)}</span></td><td>${fmtMXN(val)}</td></tr>`).join("")}
+        <tr class="sub"><td>Costo del viaje (sin IVA)</td><td>${fmtMXN(sel.costo)}</td></tr></table>` : "";
+    const resumenSel = v ? `<table class="desglose">
+        <tr><td>Costo interno (sin IVA)</td><td>${fmtMXN(v.costo)}</td></tr>
+        <tr><td>Margen ${fmtNum(v.margenPct)}%${v.origenMargen === "pendiente" ? " (pendiente)" : v.origenMargen === "modo" ? " (de esta forma de envío)" : " (general)"}</td><td>${fmtMXN(v.conMargen - v.costo)}</td></tr>
+        ${v.aplicaMinimo ? `<tr><td>Ajuste a precio mínimo</td><td>${fmtMXN(v.subtotal - v.conMargen)}</td></tr>` : ""}
+        <tr class="sub"><td>Subtotal de venta</td><td>${fmtMXN(v.subtotal)}</td></tr>
+        <tr><td>Utilidad bruta (sin IVA)</td><td>${fmtMXN(v.subtotal - v.costo)}</td></tr></table>` : "";
+
     $("contenidoResultado").innerHTML = `
       <div class="ruta">
-        <div class="de-a">${escapar(datos.origen)} → ${escapar(datos.destino)}</div>
-        <div class="meta">${fmtNum(datos.km)} km · ${fmtNum(datos.cantidad)} llantas ${escapar(TIPOS_LLANTA[datos.tipoLlanta].nombre)} · ${escapar(VEHICULOS[r.vehiculo].nombre)} · ${datos.urgencia === "express" ? "Express" : "Normal"}</div>
-        <div class="meta">${fecha}${datos.cliente ? " · Cliente: " + escapar(datos.cliente) : ""}${datos.vendedor ? " · Vendedor: " + escapar(datos.vendedor) : ""}</div>
+        <div class="de-a">${escapar(DATOS_EXCEL.origen || "Monterrey")} → ${escapar(r.destino.nombre)}</div>
+        <div class="meta">${fmtNum(r.totalLlantas)} llantas (${llantasTxt || "—"})</div>
+        <div class="meta">${fecha}${datos.cliente ? " · Cliente: " + escapar(datos.cliente) : ""}${datos.vendedor ? " · Atiende: " + escapar(datos.vendedor) : ""}</div>
       </div>
-      <table class="desglose">${filas}
-        <tr class="sub"><td>Subtotal</td><td>${fmtMXN(r.subtotal)}</td></tr>
-        <tr><td>IVA (${tarifas.valores.pctIVA}%)</td><td>${fmtMXN(r.iva)}</td></tr>
-      </table>
-      <div class="total"><span>Total MXN</span><b>${fmtMXN(r.total)}</b></div>
+      ${r.estadoMargen !== "definido" ? `<div class="flag-margen ${r.estadoMargen}">${textoFlag(r)}</div>` : ""}
+      ${r.mejor ? elegir : ""}
+      ${precio}
       ${datos.notas ? `<p class="nota"><b>Notas:</b> ${escapar(datos.notas)}</p>` : ""}
-      <div class="alertas">
-        ${ejemplo ? `<div class="alerta">⚠ Calculado con <b>tarifas de ejemplo</b>. No es un precio real hasta configurar las tarifas.</div>` : ""}
-        ${r.alertas.map(a => `<div class="alerta info">${escapar(a)}</div>`).join("")}
-      </div>`;
+      <details class="interno" id="detalleInterno">
+        <summary>🔒 Detalle interno (solo vendedor)</summary>
+        ${resumenSel}
+        <div class="sub-tit">Comparativo de costos internos (sin IVA)</div>
+        <table class="opciones">
+          <thead><tr><th>Forma de envío</th><th>Costo</th><th>Margen</th><th>Subtotal venta</th><th>Total c/IVA</th></tr></thead>
+          <tbody>${filas}</tbody>
+        </table>
+        <div class="nota">Recomendada = menor costo interno (lugar 1). * = margen propio de esa forma de envío. ${r.totalKg ? `Peso: ${fmtNum(r.totalKg)} kg · ocupación Nissan ${fmtPct(r.ocupacion.nissan)}, Camión 3.5 ${fmtPct(r.ocupacion.camion35)}, Tráiler ${fmtPct(r.ocupacion.trailer)}.` : ""}</div>
+        ${desglose}
+        <div class="alertas">
+          ${c.personalizadas ? `<div class="alerta">⚠ Calculado con tarifas <b>modificadas en este equipo</b> (no son las del Excel).</div>` : ""}
+          ${r.alertas.map(a => `<div class="alerta info">${escapar(a)}</div>`).join("")}
+        </div>
+      </details>`;
+    const s = $("selOpcion");
+    if (s) s.addEventListener("change", () => { c.seleccion = s.value; const abierto = $("detalleInterno").open; mostrarResultado(c); $("detalleInterno").open = abierto; });
     $("accionesResultado").style.display = "flex";
-    $("tituloImpresion").textContent = `Cotización de envío — ${$("nombreEmpresa").textContent}`;
+    $("tituloImpresion").textContent = `Cotización de flete — ${$("nombreEmpresa").textContent}`;
   }
 
   function calcular() {
     const datos = leerDatos();
-    if (!datos.origen || !datos.destino) return aviso("Escribe origen y destino");
-    if (datos.cantidad < 1) return aviso("La cantidad debe ser al menos 1");
+    if (!datos.destino) return aviso("Elige el destino");
     const r = calcularCotizacion(datos, tarifas.valores);
-    ultima = { datos, resultado: r, fecha: new Date().toISOString(), ejemplo: !tarifas.personalizadas && TARIFAS_EJEMPLO.esEjemplo };
-    mostrarResultado(datos, r);
+    if (r.totalLlantas < 1) return aviso("Captura al menos 1 llanta");
+    const anterior = ultima && ultima.seleccion;
+    ultima = { datos, resultado: r, fecha: new Date().toISOString(), personalizadas: tarifas.personalizadas,
+               seleccion: r.mejor ? r.mejor.id : null };
+    if (anterior && r.opciones.some(o => o.id === anterior && o.venta) && datos.destino === r.destino.nombre) ultima.seleccion = anterior;
+    mostrarResultado(ultima);
     if (window.innerWidth < 900) $("panelResultado").scrollIntoView({ behavior: "smooth" });
   }
-  $("formCotizacion").addEventListener("submit", e => { e.preventDefault(); calcular(); });
+  $("formCotizacion").addEventListener("submit", e => { e.preventDefault(); if (ultima) ultima.seleccion = null; calcular(); });
   $("btnLimpiar").addEventListener("click", () => {
-    $("formCotizacion").reset(); kmEditadoAMano = false; $("km").value = "";
-    $("contenidoResultado").innerHTML = `<div class="vacio">Llena la ruta y la carga, y presiona <b>Calcular cotización</b>.</div>`;
+    $("formCotizacion").reset(); actualizarCaptura(); mostrarInfoDestino();
+    $("contenidoResultado").innerHTML = `<div class="vacio">Elige el destino, captura las llantas y presiona <b>Calcular cotización</b>.</div>`;
     $("accionesResultado").style.display = "none"; ultima = null;
   });
 
   // ---- Copiar como texto (WhatsApp / correo) ----
+  // SOLO información para el cliente: nunca costos internos ni margen.
   function textoCotizacion(c) {
     const { datos, resultado: r } = c;
+    const o = opcionElegida(c), v = o && o.venta;
+    const ivaPct = Math.round((r.iva ?? 0.16) * 100);
     const lineas = [
-      `*COTIZACIÓN DE ENVÍO* — ${$("nombreEmpresa").textContent}`,
+      `*COTIZACIÓN DE FLETE* — ${$("nombreEmpresa").textContent}`,
       `Fecha: ${new Date(c.fecha).toLocaleString("es-MX", { dateStyle: "medium", timeStyle: "short" })}`,
       datos.cliente ? `Cliente: ${datos.cliente}` : null,
-      `Ruta: ${datos.origen} → ${datos.destino} (${fmtNum(datos.km)} km aprox.)`,
-      `Carga: ${fmtNum(datos.cantidad)} llantas ${TIPOS_LLANTA[datos.tipoLlanta].nombre}`,
-      `Vehículo: ${VEHICULOS[r.vehiculo].nombre} · Servicio: ${datos.urgencia === "express" ? "Express" : "Normal"}`,
+      `Destino: ${DATOS_EXCEL.origen || "Monterrey"} → ${r.destino.nombre}`,
+      `Llantas: ${r.lineas.filter(l => l.cantidad).map(l => `${fmtNum(l.cantidad)} ${l.tipo}`).join(", ")} (total ${fmtNum(r.totalLlantas)})`,
       ``,
-      ...r.conceptos.filter(x => !x.pendiente).map(x => `• ${x.concepto}: ${fmtMXN(x.monto)}`),
-      `Subtotal: ${fmtMXN(r.subtotal)}`,
-      `IVA: ${fmtMXN(r.iva)}`,
-      `*TOTAL: ${fmtMXN(r.total)} MXN*`,
+      v ? `Forma de envío: ${o.nombreCliente}` : `Sin forma de envío disponible`,
+      v ? `Subtotal: ${fmtMXN(v.subtotal)}` : null,
+      v ? `IVA ${ivaPct}%: ${fmtMXN(v.iva)}` : null,
+      v ? `*Total: ${fmtMXN(v.total)}*` : null,
       datos.notas ? `\nNotas: ${datos.notas}` : null,
-      datos.vendedor ? `Atiende: ${datos.vendedor}` : null,
-      c.ejemplo ? `\n(Precio de referencia con tarifas de ejemplo)` : null
+      ``,
+      `Precios en MXN. Vigencia: ${fmtNum(r.vigenciaDias || 7)} días. Sujeto a disponibilidad de unidades.`,
+      datos.vendedor ? `Atiende: ${datos.vendedor}` : null
     ];
     return lineas.filter(l => l !== null).join("\n");
   }
-  async function copiar(texto) {
-    try { await navigator.clipboard.writeText(texto); aviso("Cotización copiada ✓"); }
+  async function copiar(texto, c) {
+    const extra = c && c.resultado.estadoMargen === "pendiente" ? " — ⚠ margen pendiente" : c && c.resultado.estadoMargen === "prueba" ? " — ⚠ margen de prueba" : "";
+    try { await navigator.clipboard.writeText(texto); aviso("Cotización copiada ✓" + extra); }
     catch (e) { // respaldo para navegadores sin permiso de portapapeles (ej. archivo local)
       const ta = document.createElement("textarea"); ta.value = texto; document.body.appendChild(ta);
-      ta.select(); document.execCommand("copy"); ta.remove(); aviso("Cotización copiada ✓");
+      ta.select(); document.execCommand("copy"); ta.remove(); aviso("Cotización copiada ✓" + extra);
     }
   }
-  $("btnCopiar").addEventListener("click", () => ultima && copiar(textoCotizacion(ultima)));
+  $("btnCopiar").addEventListener("click", () => ultima && copiar(textoCotizacion(ultima), ultima));
   $("btnImprimir").addEventListener("click", () => window.print());
 
   /* =====================================================================
@@ -696,40 +764,55 @@ if (typeof document !== "undefined") {
     const h = leerHistorial();
     $("listaHistorial").innerHTML = h.length ? h.map((c, i) => `
       <div class="item-hist">
-        <div class="info"><b>${escapar(c.datos.origen)} → ${escapar(c.datos.destino)}</b> · ${fmtNum(c.datos.cantidad)} llantas ${escapar(TIPOS_LLANTA[c.datos.tipoLlanta]?.nombre || "")}
+        <div class="info"><b>${escapar(DATOS_EXCEL.origen || "Monterrey")} → ${escapar(c.datos.destino)}</b> · ${fmtNum(c.resultado.totalLlantas)} llantas · ${escapar(opcionElegida(c) ? opcionElegida(c).nombreCliente : "")}
           <small>${new Date(c.fecha).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })}${c.datos.cliente ? " · " + escapar(c.datos.cliente) : ""}${c.datos.vendedor ? " · " + escapar(c.datos.vendedor) : ""}</small></div>
-        <div style="display:flex;gap:8px;align-items:center"><span class="monto">${fmtMXN(c.resultado.total)}</span>
+        <div style="display:flex;gap:8px;align-items:center"><span class="monto">${opcionElegida(c) && opcionElegida(c).venta ? fmtMXN(opcionElegida(c).venta.total) : ""}</span>
           <button class="btn btn-sec btn-mini" data-copiar="${i}">Copiar</button>
           <button class="btn btn-sec btn-mini" data-cargar="${i}">Abrir</button></div>
       </div>`).join("") : `<div class="vacio">Aún no hay cotizaciones guardadas.</div>`;
   }
   $("btnGuardar").addEventListener("click", () => {
-    if (!ultima) return; const h = leerHistorial(); h.unshift(ultima); escribirHistorial(h); pintarHistorial(); aviso("Guardada en historial ✓");
+    if (!ultima) return; const h = leerHistorial(); h.unshift(JSON.parse(JSON.stringify(ultima))); escribirHistorial(h); pintarHistorial(); aviso("Guardada en historial ✓");
   });
   $("listaHistorial").addEventListener("click", e => {
     const h = leerHistorial();
-    if (e.target.dataset.copiar) copiar(textoCotizacion(h[e.target.dataset.copiar]));
+    if (e.target.dataset.copiar) copiar(textoCotizacion(h[e.target.dataset.copiar]), h[e.target.dataset.copiar]);
     if (e.target.dataset.cargar) {
       const c = h[e.target.dataset.cargar], d = c.datos;
-      $("origen").value = d.origen; $("destino").value = d.destino; $("km").value = d.km; kmEditadoAMano = true;
-      $("tl_" + d.tipoLlanta).checked = true; $("cantidad").value = d.cantidad; $("vehiculo").value = d.vehiculo;
-      (d.urgencia === "express" ? $("urgExpress") : $("urgNormal")).checked = true;
+      $("destino").value = d.destino; mostrarInfoDestino();
+      document.querySelectorAll("#filasLlantas input[data-tipo]").forEach(i => { i.value = d.cantidades[i.dataset.tipo] || ""; });
+      actualizarCaptura();
       $("cliente").value = d.cliente || ""; $("vendedor").value = d.vendedor || ""; $("notas").value = d.notas || "";
-      ultima = c; mostrarResultado(d, c.resultado); window.scrollTo({ top: 0, behavior: "smooth" });
+      ultima = c; mostrarResultado(c); window.scrollTo({ top: 0, behavior: "smooth" });
     }
   });
   $("btnBorrarHist").addEventListener("click", () => { if (confirm("¿Borrar todo el historial de este equipo?")) { escribirHistorial([]); pintarHistorial(); } });
 
-  // ---- Modal de configuración (se construye desde TARIFAS_EJEMPLO) ----
+  // ---- Modal de configuración (se construye desde DATOS_EXCEL) ----
   function pintarConfig() {
-    const grupos = {};
-    for (const [k, def] of Object.entries(TARIFAS_EJEMPLO.valores)) (grupos[def.grupo] ||= []).push([k, def]);
+    const base = parametrosBase(), v = tarifas.valores, grupos = {};
+    for (const c of CAMPOS_CONFIG) (grupos[c[3]] ||= []).push(c);
+    const campo = (id, etiqueta, unidad, valor, excel, extra) => `<div><label for="${id}">${etiqueta} (${unidad})</label>
+      <input type="number" step="any" min="0" id="${id}" ${extra} value="${valor == null ? "" : valor}">
+      <div class="nota">Excel: ${excel == null ? "vacío" : fmtNum(excel)}</div></div>`;
     $("formConfig").innerHTML = Object.entries(grupos).map(([g, items]) => `
       <fieldset><legend>${g}</legend><div class="grid">
-        ${items.map(([k, def]) => `<div><label for="cfg_${k}">${def.etiqueta} (${def.unidad})</label>
-          <input type="number" step="any" min="0" id="cfg_${k}" data-clave="${k}" value="${tarifas.valores[k]}">
-          <div class="nota">Ejemplo: ${def.valor}</div></div>`).join("")}
-      </div></fieldset>`).join("");
+        ${items.map(([k, et, un]) => campo("cfg_" + k, et, un, v[k], base[k], `data-clave="${k}"`)).join("")}
+      </div></fieldset>`).join("") + `
+      <fieldset><legend>Paquetería ($ por llanta)</legend><div class="grid">
+        ${DATOS_EXCEL.tiposLlanta.map(t => campo("cfgp_" + idTipo(t.nombre), t.nombre, "$/llanta", v.paqueteria[t.nombre], t.paqueteria, `data-paq="${escapar(t.nombre)}"`)).join("")}
+      </div></fieldset>
+      <fieldset><legend>Margen y precio de venta (cliente)</legend>
+        ${estadoMargen(v) === "pendiente" ? `<div class="flag-margen">Margen pendiente de definir</div>` : ""}
+        <div class="grid">
+        ${CAMPOS_MARGEN.map(([k, et, un]) => campo("cfgm_" + k, et, un, v[k], MARGEN_BASE[k], `data-margen="${k}"`).replace("Excel:", "Archivo:")).join("")}
+        </div>
+        <label class="checkline"><input type="checkbox" id="cfg_margenPrueba" ${v.margenPrueba ? "checked" : ""}> El margen es un valor de PRUEBA (mostrar aviso)</label>
+        <div class="nota" style="margin-top:10px"><b>Margen por forma de envío</b> (opcional, % · vacío = usa el margen general)</div>
+        <div class="grid">
+        ${Object.keys(NOMBRE_CLIENTE).map(id => campo("cfgmm_" + id, NOMBRE_CLIENTE[id], "%", v.margenPorModo[id], MARGEN_BASE.margenPorModo[id], `data-margen-modo="${id}"`).replace("Excel:", "Archivo:")).join("")}
+        </div>
+      </fieldset>`;
   }
   const abrirConfig = () => { pintarConfig(); $("modalConfig").classList.add("abierto"); };
   const cerrarConfig = () => $("modalConfig").classList.remove("abierto");
@@ -738,15 +821,21 @@ if (typeof document !== "undefined") {
   $("btnCerrarConfig").addEventListener("click", cerrarConfig);
   $("modalConfig").addEventListener("click", e => { if (e.target.id === "modalConfig") cerrarConfig(); });
   $("btnGuardarConfig").addEventListener("click", () => {
-    const nuevos = {};
-    document.querySelectorAll("#formConfig input[data-clave]").forEach(i => { nuevos[i.dataset.clave] = Number(i.value) || 0; });
-    guardarTarifas(nuevos); tarifas = cargarTarifas(); actualizarBadge(); cerrarConfig(); aviso("Tarifas guardadas ✓");
+    const nuevos = { paqueteria: {} };
+    document.querySelectorAll("#formConfig input[data-clave]").forEach(i => { nuevos[i.dataset.clave] = i.value === "" ? null : Number(i.value); });
+    document.querySelectorAll("#formConfig input[data-paq]").forEach(i => { nuevos.paqueteria[i.dataset.paq] = Number(i.value) || 0; });
+    document.querySelectorAll("#formConfig input[data-margen]").forEach(i => { nuevos[i.dataset.margen] = i.value === "" ? null : Number(i.value); });
+    nuevos.margenPorModo = {};
+    document.querySelectorAll("#formConfig input[data-margen-modo]").forEach(i => { nuevos.margenPorModo[i.dataset.margenModo] = i.value === "" ? null : Number(i.value); });
+    nuevos.margenPrueba = $("cfg_margenPrueba").checked;
+    guardarTarifas(nuevos); tarifas = cargarTarifas(); actualizarBadge(); cerrarConfig(); aviso("Configuración guardada ✓");
     if (ultima) calcular();
   });
   $("btnRestaurarConfig").addEventListener("click", () => {
-    if (!confirm("¿Volver a las tarifas de ejemplo?")) return;
+    if (!confirm("¿Volver a los valores del Excel y del archivo (incluye el margen)?")) return;
     try { localStorage.removeItem(CLAVE_TARIFAS); } catch (e) {}
-    tarifas = cargarTarifas(); pintarConfig(); actualizarBadge(); aviso("Tarifas de ejemplo restauradas");
+    tarifas = cargarTarifas(); pintarConfig(); actualizarBadge(); aviso("Valores del Excel restaurados");
+    if (ultima) calcular();
   });
   document.addEventListener("keydown", e => { if (e.key === "Escape") cerrarConfig(); });
 
@@ -755,7 +844,7 @@ if (typeof document !== "undefined") {
   function aviso(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("ver"); clearTimeout(tAviso); tAviso = setTimeout(() => t.classList.remove("ver"), 2200); }
 
   // ---- Arranque ----
-  actualizarBadge(); pintarHistorial();
+  actualizarBadge(); pintarHistorial(); actualizarCaptura();
 }
 </script>
 </body>

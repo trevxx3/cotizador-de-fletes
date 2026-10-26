@@ -1,216 +1,143 @@
-# Guía del Cotizador de Envíos de Llantas (para trabajar con Claude)
+# Guía del Cotizador de Fletes · Mayoreo (para trabajar con Claude)
 
 ## 1. ¿Qué hace esta página?
 
-Es una herramienta para que los **vendedores** coticen rápido cuánto cuesta enviar llantas de una ciudad a otra.
+Es la versión web de la hoja **"Cotizador"** del Excel *COTIZADOR DE FLETES · MAYOREO*,
+más un **margen** para dar **precio de venta al cliente**. Flujo:
 
-- Se captura **Origen**, **Destino** y la **distancia en km** (se llena sola para las ciudades principales; se puede corregir a mano).
-- Se elige **tipo de llanta** (Auto/Camioneta, Camión/Carga, Agrícola, OTR/Industrial), **cantidad**, **vehículo** (Camioneta, Rabón, Torton, Tráiler 53' o "Automático", que sugiere el vehículo según el peso) y **urgencia** (Normal / Express).
-- Muestra un **desglose**: costo por km, cargo por llanta, recargo express, casetas, combustible, mínimo por envío, subtotal, IVA y **total en MXN**.
-- Botones para **copiar la cotización como texto** (para WhatsApp o correo), **imprimir / guardar como PDF**, y un **historial** de las últimas 20 cotizaciones (se guarda en el mismo equipo).
-- Botón **⚙ Configuración de tarifas** para cambiar precios sin tocar código (se guardan en ese navegador).
+1. Se elige el **destino** (lista del Excel: 5 zonas locales de Monterrey y 45 destinos nacionales).
+2. Se captura **cuántas llantas de cada tipo** (Chica, Mediana, Grande, Extra Grande, Camión).
+   La página muestra kg y la **ocupación** de Nissan, Camión 3.5 y Tráiler en vivo.
+3. Calcula el **costo interno** de Paquetería, Fletera, Nissan NP300, Camión 3.5 y Tráiler propio
+   y **recomienda la de menor costo**.
+4. Muestra al vendedor la **cotización para el cliente** de la opción recomendada: **Subtotal, IVA 16% y Total**
+   (y precio por llanta). Con el selector **"Forma de envío"** se puede elegir otra opción.
+5. Los costos internos, el margen, la utilidad y el desglose (km, sueldo del chofer, comidas…) están en
+   **"🔒 Detalle interno (solo vendedor)"**, que aparece **cerrado** por defecto.
+- **Copiar texto** (WhatsApp/correo) e **Imprimir / PDF** muestran **solo** lo del cliente: destino, llantas,
+  forma de envío, subtotal, IVA, total y vigencia. **Nunca** costos ni margen.
+- **Historial** (últimas 20, en ese equipo) y **⚙ Tarifas y margen** (cambios solo en ese navegador).
 
-> ⚠️ **Importante:** todas las tarifas, pesos y capacidades que trae son **DE EJEMPLO**. Las distancias son **aproximadas**. No usar para cotizar a clientes hasta poner los números reales.
+> ⚠️ El archivo contiene los **costos internos** y el **margen** (ver sección 7): no publicarlo en un sitio público.
 
 ## 2. ¿Cómo se abre?
 
-1. Descomprime el archivo `cotizador-llantas.zip`.
-2. Haz **doble clic** en `index.html`. Se abre en Chrome, Edge, Safari o Firefox.
-3. No necesita internet ni instalar nada. También funciona en celular/tableta si se sube a internet (ver punto 6‑f).
+Doble clic en `index.html` (Chrome, Edge, Safari o Firefox). No necesita internet ni servidor:
+los datos del Excel están **dentro** del archivo.
 
-## 3. Estructura de los archivos
+## 3. Estructura
 
 ```
 cotizador-llantas/
-├── index.html            ← TODA la página (diseño + lógica) en un solo archivo
-├── GUIA_PARA_CLAUDE.md   ← esta guía
-└── captura.png           ← imagen de ejemplo de cómo se ve
+├── index.html              ← toda la página (diseño + datos + lógica)
+├── tools/excel_a_json.py   ← lee el Excel y actualiza los datos dentro de index.html
+├── GUIA_PARA_CLAUDE.md     ← esta guía
+└── captura.png             ← imagen de ejemplo
 ```
 
-Dentro de `index.html`, el código está dividido en secciones con títulos grandes:
-
-| Sección | Qué contiene | ¿Se toca seguido? |
+| Sección en `index.html` | Qué contiene | ¿Se toca? |
 |---|---|---|
-| `<style>` | Colores, tamaños, diseño de impresión | Solo para cambiar el look |
-| **A: CATÁLOGOS** | Ciudades, tipos de llanta (peso de ejemplo), vehículos (capacidad de ejemplo) | A veces |
-| **B: DISTANCIAS** | Tabla de km entre ciudades + función `obtenerDistanciaKm()` (aquí se conectaría Google Maps) | A veces |
-| **C: TARIFAS** | `TARIFAS_EJEMPLO`: costo por km por vehículo, por llanta, mínimo, % express, % IVA, casetas, diésel | ✅ **Sí** |
-| **D: CÁLCULO** | `calcularCotizacion(datos, tarifas)`: la fórmula del precio | ✅ **Sí** |
-| E, F, G | Guardado, pantalla, copiar/imprimir, historial | Casi nunca |
+| `<style>` | Colores (azul marino / naranja), impresión, celular | Solo para el look |
+| **C: DATOS DEL EXCEL** | `DATOS_EXCEL` (parámetros, tipos de llanta, destinos). **No editar a mano**: se regenera con el script | Al actualizar el Excel |
+| **D: CÁLCULO** | `calcularCotizacion()` y `costoViajePropio()`: el costo interno, igual al Excel | ✅ Para cambiar la lógica |
+| **D2: PRECIO DE VENTA** | `MARGEN_BASE` (margen general, por forma de envío, precio mínimo, vigencia) y `precioVenta()` | ✅ **Aquí se pone el margen** |
+| E, F, G | Configuración guardada, pantalla, copiar/imprimir, historial | Casi nunca |
 
-**Regla de oro:** para cambiar *cómo se cobra*, pídele a Claude que modifique **solo las secciones C y D**. La pantalla de configuración se arma sola a partir de las tarifas de la sección C.
+## 4. Cómo calcula (igual que el Excel)
 
-### Cómo calcula hoy (ejemplo)
-
+De la hoja **Tarifas** (por destino):
 ```
-Costo base     = km × costo por km del vehículo
-Cargo llantas  = cantidad × cargo por llanta según tipo
-Express        = (base + llantas) × % express       (solo si es Express)
-Casetas        = km × casetas por km                (hoy en 0 = no se cobra)
-Combustible    = (km ÷ rendimiento) × precio diésel (hoy en 0 = no se cobra)
-Subtotal       = suma de lo anterior (si es menor al mínimo, se sube al mínimo)
-IVA            = subtotal × 16%
-Total          = subtotal + IVA
+Km redondo            = km sencillo × 2
+Costo viaje Nissan    = km redondo × $7/km  + comidas $600 + permiso $500
+                        + sueldo diario chofer (24,000/4/7 = $857.14) + tiempo extra $800 + casetas
+Costo viaje Cam. 3.5  = igual, con $4/km
+Costo viaje Tráiler   = igual, con $/km del tráiler (VACÍO en el Excel → "Sin tarifa")
+Fletera               = tarifa SIN IVA          (solo 8 destinos tienen tarifa)
 ```
-
-## 4. Datos que conviene juntar antes de hablar con Claude
-
-- [ ] **Costo por km** de cada vehículo (Camioneta, Rabón, Torton, Tráiler) — o si cobran por rangos de km.
-- [ ] **Rendimiento de diésel** de cada vehículo (km por litro) y precio actual del diésel.
-- [ ] **Casetas**: costo aproximado por ruta frecuente (o un promedio por km).
-- [ ] **Capacidad real** de cada vehículo: cuántas llantas de cada tipo caben (o kg / m³).
-- [ ] **Peso o tamaño real** de las llantas que más mueven.
-- [ ] **Cargos fijos**: maniobra de carga/descarga, seguro, viáticos del chofer, regreso vacío.
-- [ ] **Mínimo por envío** y **recargo Express**.
-- [ ] **Margen de ganancia** (% que se suma al costo) y si hay descuentos por volumen o por cliente.
-- [ ] **Zonas** (si cobran por zona: local, regional, nacional).
-- [ ] Ciudades/rutas que más usan y sus **km reales** (Google Maps).
-- [ ] Nombre de la empresa, logo, teléfono, condiciones (vigencia de la cotización, forma de pago).
-
-## 5. Cómo trabajar con Claude (pasos)
-
-1. Abre Claude (claude.ai) y empieza una conversación nueva.
-2. **Adjunta el archivo `index.html`** (botón del clip 📎) o pega su contenido.
-3. Copia el **Prompt maestro** (6‑a) y después el prompt de lo que quieres cambiar.
-4. Claude te devolverá el archivo corregido: guárdalo como `index.html` (reemplazando el anterior; conserva una copia del viejo por si acaso).
-5. Ábrelo con doble clic y prueba con una ruta conocida para revisar que el total cuadre.
-
-> Tip: pide un cambio a la vez. Si algo sale mal, regresa a la copia anterior.
-
-## 6. Prompts listos para copiar
-
-### a) Prompt maestro (pégalo siempre al inicio)
-
+De la hoja **Cotizador**:
 ```
-Te adjunto index.html: es un cotizador de envíos de llantas para los vendedores de una
-distribuidora en México. Es un solo archivo HTML con CSS y JavaScript dentro, sin
-dependencias, que se abre con doble clic. Todo el texto debe quedar en español de México
-y los precios en MXN.
+Paquetería  = Σ cantidad × $/llanta ($58 llantas de auto, $116 camión)
+Ocupación   = Σ cantidad ÷ capacidad del tipo   (Nissan 80, Camión 3.5 200, Tráiler 450–1,800)
+Unidades propias: máximo 1 viaje; si la ocupación pasa de 100% → "No cabe"
+Fletera     = tarifa sin IVA × viajes de tráiler (mínimo 1)   ← ver pregunta abierta 1
+Recomendada = la opción con MENOR COSTO interno (todo sin IVA)
+```
+Precio de venta (sección D2), para cada opción:
+```
+Subtotal = costo interno (sin IVA) × (1 + margen%)
+             margen% = margen de esa forma de envío si está capturado; si no, el margen general
+Si hay precio mínimo y el subtotal queda abajo → subtotal = precio mínimo (antes de IVA)
+IVA      = subtotal × 16%
+Total    = subtotal + IVA
+```
+**Criterio de IVA:** todos los costos se comparan **sin IVA** (también la fletera, que antes se tomaba con IVA),
+se aplica el margen y **al final** se suma el IVA al precio del cliente. Así ninguna opción "carga" IVA dos veces.
 
-La lógica de precios está aislada en dos secciones marcadas con banners:
-- SECCIÓN C: TARIFAS_EJEMPLO (valores de tarifas; el modal "Configuración de tarifas"
-  se construye automáticamente a partir de este objeto).
-- SECCIÓN D: function calcularCotizacion(datos, tarifas), que regresa
-  { conceptos:[{concepto, detalle, monto, pendiente?}], subtotal, iva, total,
-    vehiculo, pesoTotalKg, alertas:[] }.
+**Margen pendiente:** en `MARGEN_BASE` el margen general está en `null` → la página usa **0%** y muestra en rojo
+**"⚠ Margen pendiente de definir"**. Si se marca *"El margen es un valor de PRUEBA"* sale un aviso naranja.
+Ninguno de los dos avisos aparece en el texto copiado ni en la impresión (el vendedor recibe otro aviso al copiar).
 
-Reglas:
-1. Modifica SOLO las secciones C y D, salvo que te pida otra cosa explícitamente.
-2. No cambies la forma del objeto que regresa calcularCotizacion (la pantalla depende de él).
-3. Cada tarifa nueva agrégala en TARIFAS_EJEMPLO.valores con {valor, etiqueta, unidad, grupo}.
-4. Mantén el código comentado en español y sin librerías externas.
-5. Al terminar, dame el archivo index.html COMPLETO y un ejemplo numérico de cómo
-   queda la cotización Monterrey → CDMX (910 km) con 40 llantas de camión.
-Si algo de mis reglas de cálculo no está claro, pregúntame antes de programar.
-```
+Ejemplo (Allende, 80 llantas Chica, margen de prueba 20%): Paquetería costo $4,640 → subtotal $5,568 →
+IVA $890.88 → **total $6,458.88** ($80.74 por llanta).
+Zonas locales (Monterrey) no tienen km ni fletera en el Excel → solo Paquetería.
 
-### b) "Así calculamos" — plantilla con tus tarifas reales (llena los espacios)
+## 5. Cómo definir el margen
 
-```
-Así calculamos nuestros envíos. Actualiza TARIFAS y calcularCotizacion con estos datos
-y cambia esEjemplo a false:
+- **Para todos** (recomendado): en `index.html`, sección D2, cambiar `MARGEN_BASE`, p. ej.
+  `margenGeneral: 18,` y, si se quiere, `margenPorModo: { paqueteria: 25, fletera: 12, … }`,
+  `precioMinimo: 1500,` `vigenciaDias: 7`. Volver a compartir el archivo.
+- **Solo en un equipo:** botón **⚙ Tarifas y margen** → "Margen y precio de venta".
+  Se guarda en ese navegador ("Restaurar" regresa a lo del archivo).
 
-- Costo por km: Camioneta $____, Rabón $____, Torton $____, Tráiler 53' $____
-- Cargo por llanta: Auto/Camioneta $____, Camión $____, Agrícola $____, OTR $____
-- Mínimo por envío: $____ (antes de IVA)
-- Recargo Express: ____ % (se aplica sobre: ____________)
-- Casetas: ________ (promedio $____ por km / o monto fijo por ruta)
-- Diésel: precio $____ por litro; rendimiento Camioneta __ km/L, Rabón __, Torton __, Tráiler __
-- ¿El costo por km ya incluye el diésel? (sí / no): ____
-- Cargos fijos (maniobra, seguro, viáticos): ____________
-- Margen de ganancia: ____ % sobre el costo
-- IVA: 16 % (¿hay clientes con frontera 8 %? ____)
-- Capacidad por vehículo (llantas de camión): Camioneta __, Rabón __, Torton __, Tráiler __
-- Peso aproximado por llanta: Auto __ kg, Camión __ kg, Agrícola __ kg, OTR __ kg
-```
+## 6. Cómo actualizar los datos cuando cambie el Excel
 
-### c) Variantes de cálculo (usa la que aplique)
+En la carpeta del proyecto (requiere Python y `pip install openpyxl`):
+```
+python3 tools/excel_a_json.py "C:/ruta/COTIZADOR DE FLETES.xlsx" --reemplazar index.html
+```
+Lee la hoja **Tarifas**: D5:D12 (parámetros), B15:G19 (tipos de llanta) y B23 hacia abajo (destinos).
+Si agregas destinos al final de la tabla, entran solos. **Nunca subas el Excel al repositorio.**
 
-**Tarifa por rangos de km**
-```
-Cambia el costo base para que sea por rangos de distancia:
-0–100 km: $____ fijo; 101–500 km: $____ por km; 501–1000 km: $____ por km;
-más de 1000 km: $____ por km. Que los rangos se puedan editar en Configuración de tarifas.
-```
+## 7. Prompts para Claude
 
-**Por peso o volumen**
+**Prompt maestro:**
 ```
-Quiero cobrar por peso/volumen en lugar de por llanta: $____ por kg (o por m³).
-Usa el peso/volumen de cada tipo de llanta (Auto __ kg/__ m³, Camión __, Agrícola __, OTR __).
-Si la carga no cabe en el vehículo elegido, calcula cuántos viajes hacen falta y cóbralos.
+Te paso index.html del Cotizador de Fletes (un solo archivo HTML/JS). Los datos están en la
+constante DATOS_EXCEL (sección C, generada por tools/excel_a_json.py), el costo interno en la
+sección D (calcularCotizacion) y el margen/precio de venta en la sección D2 (MARGEN_BASE,
+precioVenta). El texto copiado y la impresión NUNCA deben mostrar costos ni margen.
+Haz SOLO este cambio: [...]. No cambies el diseño. Devuélveme el archivo completo y dime cómo probarlo.
 ```
+Ejemplos: "Pon el margen general en 18% y en fletera 10%" · "Recomienda la opción más barata para el cliente (precio con margen) en lugar del menor costo" ·
+"La fletera debe usar la tarifa sin IVA" · "Permite hasta 2 viajes de Camión 3.5" ·
+"Usa las capacidades de la hoja Capacidades (por tamaño) en lugar de 80/200".
 
-**Por tipo de vehículo (tarifa por viaje)**
-```
-Cobramos por viaje completo según vehículo y ruta, no por km. Tarifa por viaje:
-Camioneta $____, Rabón $____, Torton $____, Tráiler $____ hasta ____ km; arriba de eso
-$____ por km adicional. Sugiere automáticamente el vehículo según cuántas llantas caben
-(capacidades: ____).
-```
+## 8. Publicación y datos sensibles
 
-**Por zonas**
-```
-Cobramos por zonas desde Monterrey: Zona 1 (área metropolitana) $____; Zona 2 (Noreste:
-Saltillo, Torreón, SLP...) $____; Zona 3 (Centro: CDMX, Querétaro, Guadalajara...) $____;
-Zona 4 (resto del país) $____. Agrega un selector o detección de zona por ciudad destino.
-```
+Todo el cálculo corre **en el navegador**: aunque el detalle interno esté cerrado y no se imprima,
+**cualquiera que abra el código de la página** (clic derecho → "Ver código fuente") ve los costos internos
+(costo por km, sueldo del chofer, tarifas de fletera y paquetería) y el margen. Ocultar la sección
+solo evita que se vea por accidente; **no es seguridad**. Opciones reales:
+1. **Compartir el archivo solo con vendedores** (WhatsApp/Drive, doble clic). Al cliente solo se le manda
+   el texto copiado o el PDF. Sin costo y lo más simple.
+2. **Hosting con contraseña / control de acceso** (p. ej. Cloudflare Pages + Cloudflare Access,
+   o Netlify con protección por contraseña): solo entra quien tenga acceso; el código sigue visible para ellos.
+3. **Un backend pequeño** (servidor o función en la nube) que guarde costos y margen y devuelva solo
+   el precio de venta: la única forma de que ni los vendedores vean los costos. Requiere desarrollo y mantenimiento.
 
-**Mínimo por envío y descuentos**
-```
-Agrega: mínimo por envío de $____; descuento de ____ % a partir de ____ llantas;
-y un campo "Descuento especial %" que el vendedor pueda capturar (máximo ____ %).
-```
+**No publicar esta versión en el repositorio/sitio público actual.**
 
-**Casetas y diésel reales**
-```
-Calcula el combustible como (km ÷ rendimiento del vehículo) × precio del diésel, con un
-rendimiento distinto por vehículo (Camioneta __, Rabón __, Torton __, Tráiler __ km/L).
-Para casetas usa esta tabla por ruta: Monterrey–CDMX $____, Monterrey–Guadalajara $____, ...
-y si la ruta no está, usa $____ por km. Considera también el regreso vacío (sí/no: __).
-```
+## 9. Preguntas abiertas / limitaciones
 
-### d) Distancias reales con Google Maps
-
-```
-Conecta la función obtenerDistanciaKm(origen, destino) (sección B) a la API Distance
-Matrix de Google Maps (o a OpenRouteService si es más barato) para obtener los km reales
-por carretera para camión. Mantén la tabla actual como respaldo si no hay internet o la
-API falla. La API key debe estar en una constante al inicio del script con un comentario
-claro. Explícame paso a paso cómo sacar la API key y cuánto cuesta.
-```
-> Nota: Google Maps pide tarjeta para activar la API (tiene crédito mensual gratis). OpenRouteService tiene plan gratuito. Una API key puesta en una página pública puede ser usada por otros: restríngela a tu dominio.
-
-### e) Nombre de la empresa y logo
-
-```
-Pon el nombre de la empresa "__________" en el encabezado y en la cotización impresa.
-Usa este logo (te lo adjunto) en lugar del círculo naranja, incrustado en el archivo para que
-siga funcionando sin internet. Agrega al pie de la cotización impresa: teléfono ________,
-correo ________, dirección ________ y la leyenda "Cotización válida por __ días".
-Cambia los colores a los de la marca: principal ______, acento ______.
-```
-
-### f) Publicarla en internet / varios usuarios con login (más adelante)
-
-**Publicarla (gratis, sin login):**
-```
-Quiero publicar esta página para que los vendedores la abran desde su celular. Explícame
-paso a paso cómo subir index.html a Netlify (arrastrar y soltar) o a GitHub Pages.
-```
-
-**Multiusuario con login y tarifas compartidas:**
-```
-Quiero convertir este cotizador en una aplicación multiusuario: cada vendedor entra con su
-usuario y contraseña, las tarifas las administra solo un administrador y son las mismas para
-todos, y las cotizaciones se guardan en una base de datos para consultarlas después (por
-vendedor, cliente y fecha). Propón la opción más sencilla y barata (por ejemplo Supabase o
-Firebase + Netlify), reutilizando el diseño y la función calcularCotizacion actuales.
-Explícame los pasos como a alguien que no es programador.
-```
-
-## 7. Limitaciones actuales (para saber)
-
-- Tarifas, pesos y capacidades son **de ejemplo**.
-- Distancias **aproximadas**; si la ruta no está en la tabla se **estima** (línea recta × 1.3) y la página lo avisa. Direcciones exactas no se calculan: escribe los km a mano.
-- Las tarifas editadas y el historial se guardan **solo en el navegador de ese equipo** (si se borra el historial del navegador, se pierden; cada vendedor tiene los suyos).
-- No hay login ni base de datos todavía (ver 6‑f).
+1. **Fletera:** en el Excel la celda Cotizador!D20 devuelve **0** cuando hay tarifa (fórmula incompleta),
+   y entonces la fletera "gana" con $0. Aquí se usa **tarifa sin IVA × viajes de tráiler** (el IVA se suma al final). ¿Correcto?
+2. **Tráiler propio:** no tiene costo por km (Tarifas!D7 vacío) → siempre "Sin tarifa".
+3. **Casetas:** columna vacía para todos los destinos → se toman $0.
+4. **Capacidades:** la hoja Tarifas usa 80/200 para todos los tamaños, pero la hoja Capacidades tiene cifras
+   distintas por tamaño (p. ej. Nissan caja abierta: chica 130; Camión 3.5: chica 650). La página usa las de **Tarifas** (como el Excel).
+5. **Paquetería** $58 / $116 por llanta: se tomaron como **sin IVA**. ¿Es así?
+5b. **Margen:** % general y, si aplica, por forma de envío; ¿precio mínimo? ¿vigencia (hoy 7 días)?
+5c. **Recomendación:** hoy es la de menor **costo**; con márgenes distintos por forma de envío podría no ser la más barata para el cliente.
+6. Kg por llanta: 9 kg para todos los tamaños de auto (Chica a Extra Grande) y 50 kg camión.
+7. Hojas no usadas por el cotizador: Pedido (bitácora de pedidos), Concentrado y Hoja 1 (versiones anteriores),
+   Zonas (catálogo), Gestion de Unidades y Tipos llanta (ocultas, referencia).
