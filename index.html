@@ -20,6 +20,7 @@
            SECCIÓN E: Configuración guardada (localStorage)
            SECCIÓN F: Interfaz (formulario, resultado, copiar, imprimir)
            SECCIÓN G: Historial de cotizaciones
+           SECCIÓN H: Tiempo típico en CEDIS (informativo, no afecta el precio)
   • Para cambiar CÓMO se calcula el precio, solo hay que tocar las
     secciones C y D. El resto de la página se adapta sola.
   =====================================================================
@@ -102,6 +103,13 @@
   .alertas{margin-top:10px;display:flex;flex-direction:column;gap:6px}
   .alerta{font-size:.8rem;padding:8px 10px;border-radius:8px;background:#fff8e6;color:#8a5a00;border:1px solid #f5dfa3}
   .alerta.info{background:#eef4ff;color:#2a4a8a;border-color:#cddcfa}
+  /* Tiempo típico en CEDIS (informativo) */
+  .tiempo-cedis{margin-top:12px;border:1px solid var(--borde);border-left:4px solid var(--naranja);border-radius:10px;padding:10px 12px;background:#fbfcff}
+  .tiempo-cedis .tc-tit{font-size:.78rem;font-weight:700;color:var(--naranja-2);text-transform:uppercase;letter-spacing:.02em}
+  .tiempo-cedis .tc-val{margin-top:2px;color:var(--navy)}
+  .tiempo-cedis .tc-val b{font-size:1.2rem}
+  .tiempo-cedis .tc-val span{font-size:.88rem;color:var(--texto,#333)}
+  .tiempo-cedis .tc-det{font-size:.76rem;color:var(--suave);margin-top:3px}
   .vacio{text-align:center;color:var(--suave);padding:30px 10px}
   /* Historial */
   .historial{}
@@ -145,6 +153,8 @@
     .ruta{background:#fff;color:#000;border:2px solid #000}
     .total{background:#fff;border:2px solid #000}
     .total b,.total span{color:#000}
+    .tiempo-cedis{background:#fff;border:1px solid #000;border-left:4px solid #000}
+    .tiempo-cedis .tc-tit,.tiempo-cedis .tc-val{color:#000}
   }
 </style>
 </head>
@@ -526,10 +536,143 @@ function calcularCotizacion(datos, tarifas) {
 function redondear(n) { return Math.round((Number(n) || 0) * 100) / 100; }
 function fmtMXN(n) { return (Number(n) || 0).toLocaleString("es-MX", { style: "currency", currency: "MXN" }); }
 function fmtNum(n) { return (Number(n) || 0).toLocaleString("es-MX"); }
+function fechaCorta(iso) { const [a, m, d] = String(iso).split("-").map(Number); return new Date(a, m - 1, d).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" }); }
 function escapar(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
 // Permite probar el cálculo desde Node.js (no afecta al navegador)
 if (typeof module !== "undefined") { module.exports = { calcularCotizacion, obtenerDistanciaKm, TARIFAS_EJEMPLO }; }
+
+/* #######################################################################
+   ##   SECCIÓN H: TIEMPO TÍPICO EN CEDIS (dato informativo, NO precio)  ##
+   ##   No afecta el cálculo del precio (secciones C y D).               ##
+   ##   TIEMPOS_CEDIS son SOLO estadísticas agregadas (medianas,         ##
+   ##   percentiles, conteos) del Excel de tiempos Cedis/Mayoreo.        ##
+   ##   Sin nombres, facturas ni notas. Para actualizar:                 ##
+   ##     python3 tools/tiempos_cedis.py ARCHIVO.xlsx --reemplazar index.html
+   ##   Minutos: "mediana" = tiempo típico; "p25"-"p75" = rango normal   ##
+   ##   (la mitad de los vales cae en ese rango).                        ##
+   ##   Franjas por hora del vale: mañana <12:00, mediodía 12-15, tarde ≥15
+   ####################################################################### */
+const TIEMPOS_CEDIS = {
+  "fuente": "Excel de tiempos Cedis/Mayoreo, hoja 'Tiempos' (solo estadísticas agregadas)",
+  "periodo": {
+    "del": "2026-09-14",
+    "al": "2026-10-21"
+  },
+  "valesRegistrados": 394,
+  "metaMin": 20.0,
+  "pctDentroMeta": 37,
+  "excluidosPorError": 90,
+  "cedis": {
+    "n": 248,
+    "mediana": 32,
+    "p25": 14,
+    "p75": 51,
+    "p80": 51,
+    "promedio": 35
+  },
+  "ciclo": {
+    "n": 313,
+    "mediana": 81,
+    "p25": 39,
+    "p75": 141,
+    "p80": 158,
+    "promedio": 98
+  },
+  "porFranja": {
+    "manana": {
+      "n": 99,
+      "mediana": 31,
+      "p25": 15,
+      "p75": 44,
+      "p80": 46,
+      "promedio": 29
+    },
+    "mediodia": {
+      "n": 91,
+      "mediana": 39,
+      "p25": 13,
+      "p75": 65,
+      "p80": 65,
+      "promedio": 43
+    },
+    "tarde": {
+      "n": 58,
+      "mediana": 22,
+      "p25": 13,
+      "p75": 40,
+      "p80": 49,
+      "promedio": 32
+    }
+  },
+  "porLlantas": {
+    "1-4": {
+      "n": 96,
+      "mediana": 31,
+      "p25": 13,
+      "p75": 44,
+      "p80": 51,
+      "promedio": 34
+    },
+    "5-8": {
+      "n": 71,
+      "mediana": 31,
+      "p25": 13,
+      "p75": 51,
+      "p80": 51,
+      "promedio": 34
+    },
+    "9+": {
+      "n": 81,
+      "mediana": 32,
+      "p25": 19,
+      "p75": 51,
+      "p80": 60,
+      "promedio": 38
+    }
+  },
+  "limpieza": "En CEDIS solo 1-240 min; ciclo solo 1-480 min (se descartan errores de captura)",
+  "comparacionExcel": {
+    "cedis": {
+      "n": 321,
+      "mediana": 22,
+      "p25": 6,
+      "p75": 46,
+      "p80": 51,
+      "promedio": 52
+    },
+    "ciclo": {
+      "n": 338,
+      "mediana": 87,
+      "p25": 41,
+      "p75": 159,
+      "p80": 168,
+      "promedio": 182
+    },
+    "pctDentroMeta": 48
+  }
+};
+
+/** Regresa el tiempo típico en CEDIS para la hora dada (Date).
+ *  { franja, nombreFranja, mediana, desde, hasta, ciclo:{mediana,desde,hasta}, texto } */
+function tiempoCedisPara(fecha) {
+  const T = TIEMPOS_CEDIS;
+  if (!T || !T.cedis) return null;
+  const h = (fecha || new Date()).getHours();
+  const franja = h < 12 ? "manana" : (h < 15 ? "mediodia" : "tarde");
+  const nombres = { manana: "en la mañana", mediodia: "al mediodía (12–15 h)", tarde: "en la tarde" };
+  // Si la franja tiene pocos datos (<30 vales) se usa el valor general
+  const f = (T.porFranja && T.porFranja[franja] && T.porFranja[franja].n >= 30) ? T.porFranja[franja] : T.cedis;
+  const usaFranja = f !== T.cedis;
+  return {
+    franja, nombreFranja: usaFranja ? nombres[franja] : "general",
+    mediana: f.mediana, desde: f.p25, hasta: f.p75,
+    ciclo: T.ciclo ? { mediana: T.ciclo.mediana, desde: T.ciclo.p25, hasta: T.ciclo.p75 } : null,
+    texto: `~${f.mediana} min (normalmente entre ${f.p25} y ${f.p75} min)` + (usaFranja ? ` para vales ${nombres[franja]}` : "")
+  };
+}
+if (typeof module !== "undefined") { module.exports.tiempoCedisPara = tiempoCedisPara; module.exports.TIEMPOS_CEDIS = TIEMPOS_CEDIS; }
+/* ===================== FIN TIEMPO TÍPICO EN CEDIS ===================== */
 
 /* =======================================================================
    SECCIÓN E: CONFIGURACIÓN GUARDADA (localStorage)
@@ -631,6 +774,14 @@ if (typeof document !== "undefined") {
         <tr><td>IVA (${tarifas.valores.pctIVA}%)</td><td>${fmtMXN(r.iva)}</td></tr>
       </table>
       <div class="total"><span>Total MXN</span><b>${fmtMXN(r.total)}</b></div>
+      ${(() => { const tc = tiempoCedisPara(new Date()); if (!tc) return "";
+        const p = TIEMPOS_CEDIS.periodo;
+        return `<div class="tiempo-cedis">
+          <div class="tc-tit">⏱ Tiempo típico en CEDIS</div>
+          <div class="tc-val"><b>~${tc.mediana} min</b> <span>normalmente entre ${tc.desde} y ${tc.hasta} min${tc.nombreFranja !== "general" ? " · vales " + tc.nombreFranja : ""}</span></div>
+          ${tc.ciclo ? `<div class="tc-det">Del vale al despacho (ciclo total): ~${tc.ciclo.mediana} min (normalmente ${tc.ciclo.desde}–${tc.ciclo.hasta} min)</div>` : ""}
+          <div class="tc-det">Referencia histórica: ${fmtNum(TIEMPOS_CEDIS.cedis.n)} vales medidos del ${fechaCorta(p.del)} al ${fechaCorta(p.al)}. No es un compromiso de entrega.</div>
+        </div>`; })()}
       ${datos.notas ? `<p class="nota"><b>Notas:</b> ${escapar(datos.notas)}</p>` : ""}
       <div class="alertas">
         ${ejemplo ? `<div class="alerta">⚠ Calculado con <b>tarifas de ejemplo</b>. No es un precio real hasta configurar las tarifas.</div>` : ""}
@@ -671,6 +822,7 @@ if (typeof document !== "undefined") {
       `Subtotal: ${fmtMXN(r.subtotal)}`,
       `IVA: ${fmtMXN(r.iva)}`,
       `*TOTAL: ${fmtMXN(r.total)} MXN*`,
+      (() => { const tc = tiempoCedisPara(new Date(c.fecha)); return tc ? `\n⏱ Tiempo típico en CEDIS: ${tc.texto}.` + (tc.ciclo ? `\nDel vale al despacho: ~${tc.ciclo.mediana} min (normalmente ${tc.ciclo.desde}–${tc.ciclo.hasta} min).` : "") : null; })(),
       datos.notas ? `\nNotas: ${datos.notas}` : null,
       datos.vendedor ? `Atiende: ${datos.vendedor}` : null,
       c.ejemplo ? `\n(Precio de referencia con tarifas de ejemplo)` : null

@@ -24,6 +24,7 @@ Es una herramienta para que los **vendedores** coticen rápido cuánto cuesta en
 cotizador-llantas/
 ├── index.html            ← TODA la página (diseño + lógica) en un solo archivo
 ├── GUIA_PARA_CLAUDE.md   ← esta guía
+├── tools/tiempos_cedis.py ← recalcula el "tiempo típico en CEDIS" desde el Excel de tiempos
 └── captura.png           ← imagen de ejemplo de cómo se ve
 ```
 
@@ -37,6 +38,7 @@ Dentro de `index.html`, el código está dividido en secciones con títulos gran
 | **C: TARIFAS** | `TARIFAS_EJEMPLO`: costo por km por vehículo, por llanta, mínimo, % express, % IVA, casetas, diésel | ✅ **Sí** |
 | **D: CÁLCULO** | `calcularCotizacion(datos, tarifas)`: la fórmula del precio | ✅ **Sí** |
 | E, F, G | Guardado, pantalla, copiar/imprimir, historial | Casi nunca |
+| **H: TIEMPO EN CEDIS** | `TIEMPOS_CEDIS` (estadísticas agregadas) + `tiempoCedisPara(fecha)`. Solo informativo: **no cambia el precio** | Cuando se actualice el Excel de tiempos |
 
 **Regla de oro:** para cambiar *cómo se cobra*, pídele a Claude que modifique **solo las secciones C y D**. La pantalla de configuración se arma sola a partir de las tarifas de la sección C.
 
@@ -208,9 +210,39 @@ Firebase + Netlify), reutilizando el diseño y la función calcularCotizacion ac
 Explícame los pasos como a alguien que no es programador.
 ```
 
+## 6-bis. Tiempo típico en CEDIS (sección H)
+
+La cotización muestra un recuadro **"⏱ Tiempo típico en CEDIS"** (también sale en el texto
+para WhatsApp y al imprimir). Sale del Excel de tiempos Cedis/Mayoreo (hoja **Tiempos**).
+
+- **En la página solo hay estadísticas agregadas** (medianas, percentiles y conteos). **Nunca**
+  se suben nombres de choferes, facturas, traspasos, observaciones ni filas del Excel.
+  **El Excel NO se sube al repositorio** (el sitio es público).
+- Cálculo (igual que la hoja Resumen): *Tiempo en CEDIS* = hora despacho − hora llegada a CEDIS;
+  *Ciclo total* = hora despacho − hora del vale.
+- Limpieza: se descartan tiempos en CEDIS menores a 1 min (llegada y despacho capturados al
+  mismo tiempo) o mayores a 240 min (olvidos de cierre), y ciclos < 1 min o > 480 min.
+- "~X min" = **mediana**; "normalmente entre A y B" = percentiles 25 y 75 (la mitad de los vales).
+- Se adapta a la **hora** en que se hace la cotización: mañana (antes de 12), mediodía (12–15), tarde
+  (desde 15). Por **cantidad de llantas** no hubo diferencia real, por eso no se usa.
+- El objeto también trae `pctDentroMeta` (% de vales ≤ 20 min) y `comparacionExcel` (cifras sin la
+  limpieza extra, como las calcula la hoja Resumen); no se muestran al cliente.
+
+**Para actualizarlo** con un Excel nuevo (en la carpeta del proyecto):
+
+```
+python3 tools/tiempos_cedis.py "C:/ruta/al/Excel de tiempos.xlsx" --reemplazar index.html
+```
+
+(Requiere `pip install openpyxl`.) Después revisa la página y súbela. Prompt para Claude:
+"Actualiza la constante TIEMPOS_CEDIS (sección H) con estos números / cambia el texto del recuadro
+de tiempo en CEDIS. No toques las secciones C y D."
+
 ## 7. Limitaciones actuales (para saber)
 
 - Tarifas, pesos y capacidades son **de ejemplo**.
 - Distancias **aproximadas**; si la ruta no está en la tabla se **estima** (línea recta × 1.3) y la página lo avisa. Direcciones exactas no se calculan: escribe los km a mano.
 - Las tarifas editadas y el historial se guardan **solo en el navegador de ese equipo** (si se borra el historial del navegador, se pierden; cada vendedor tiene los suyos).
 - No hay login ni base de datos todavía (ver 6‑f).
+- El tiempo en CEDIS es una **referencia histórica** (no un compromiso) y depende de la calidad de
+  captura del Excel (hubo bastantes registros con horas mal capturadas, que se descartan).
